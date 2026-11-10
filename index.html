@@ -23,7 +23,7 @@
   --yg:#C9A43A; --ss:#A4AAB6; --rg:#D7958A; --mix:#8E86A8;
   --warn:#A8591A; --warn-bg:#FBEBDD; --ok:#2C7A57; --ok-bg:#E1F2EA; --bad:#B0344A; --bad-bg:#F9E3E7;
   --pj:#7A5C1E; --pj-bg:#F6EDD6; --kc:#2F5E78; --kc-bg:#DDEBF3;
-  --gold:#B09658; --cream:#FDF9EF; --linked-bg:#FBF4E3; --due-bg:#FBE6E6;
+  --gold:#B09658; --cream:#FDF9EF; --nolink-bg:#F1EFED; --due-bg:#FBE6E6;
   --f-logo:"Cormorant Garamond",Garamond,"Times New Roman",serif;
   --f-display:"Young Serif",Georgia,"Times New Roman",serif;
   --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -116,9 +116,9 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .list{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--line)}
 .row:first-child{border-top:0}
-.row.linked{background:var(--linked-bg)}
+.row.nolink{background:var(--nolink-bg)}
 .row.due{background:var(--due-bg)}
-.row.linked .main.clickable:hover,.row.due .main.clickable:hover{background:transparent}
+.row.nolink .main.clickable:hover,.row.due .main.clickable:hover{background:transparent}
 .key{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
 .key span{display:inline-flex;align-items:center;gap:6px}
 .key i{width:14px;height:14px;border-radius:4px;border:1px solid var(--line);display:inline-block}
@@ -413,7 +413,7 @@ function itemRow(it, withQty=true){
   const fin = it.finish ? `<span class="pill fin">${esc(FINISH[it.finish])}</span>` : "";
   const sub = [CAT[it.cat], it.style, it.cost!=null ? money(it.cost)+" / "+(it.unit||"pc") : ""].filter(Boolean).map(esc).join(" · ");
   const q = it.qty==null ? "—" : (Math.round(it.qty*100)/100);
-  const shade = !it.dead && (st === "low" || st === "out") ? " due" : (it.linkId && linkById(it.linkId)) ? " linked" : "";
+  const shade = !it.dead && (st === "low" || st === "out") ? " due" : (it.linkId && linkById(it.linkId)) ? "" : " nolink";
   return `<div class="row${shade}">
     ${thumb(it.photo, it.metal, it.name)}
     <div class="main clickable" data-a="editItem" data-id="${it.id}" role="button" tabindex="0">
@@ -499,7 +499,7 @@ function vStock(){
       ${chipset("line",[["all","Both lines"],["pj","Permanent jewellery"],["kc","Keychain"]],f.line)}
     </div>
     ${f.cat === "dead" ? `<p class="note">The archive keeps dead stock out of your main list and restock alerts. Tap Restore to bring an item back, or open it to write off more pieces.</p>`
-      : `<div class="key" aria-label="Colour key"><span><i style="background:var(--linked-bg)"></i>Has a supplier link</span><span><i style="background:var(--due-bg)"></i>Restock due (low or out)</span></div>
+      : `<div class="key" aria-label="Colour key"><span><i style="background:var(--nolink-bg)"></i>No supplier link yet</span><span><i style="background:var(--due-bg)"></i>Restock due (low or out)</span></div>
       <p class="note">Tap − / + to use or add one unit. Tap an item to edit its count, restock level or supplier link. Charms can be tagged for both lines. Dead stock lives in the Archive.</p>`}
     <div class="list">${loading("items") || (items.length ? items.map(i=>itemRow(i)).join("") : `<div class="empty">${f.cat === "dead" ? "Nothing archived. To archive an item, open it and tick “Move to archive (dead stock)”." : S.items.length?"No items match these filters.":"No stock yet. Add your chains, jump rings and charms with “Add item”."}</div>`)}</div>
     ${(() => {
