@@ -231,6 +231,40 @@ const PAY = ["PayNow","Cash","Card","PayLah","Other"];
 // Starting estimates for chain used per piece (cm); editable in the app under Stock → Chain lengths.
 const PEOPLE = ["Jessica","Valerie"];
 const EXP_CAT = {stock:"Stock & supplies", onetime:"One-time / equipment", admin:"Admin & fees", marketing:"Packaging & marketing", other:"Other"};
+// Currencies the app can convert to SGD (rates from the European Central Bank via frankfurter.dev).
+const CURS = {SGD:"S$", USD:"US$", MYR:"RM", CNY:"CN¥", EUR:"€", GBP:"£", AUD:"A$", HKD:"HK$", JPY:"JP¥", KRW:"₩", THB:"฿", IDR:"Rp", PHP:"₱", INR:"₹"};
+const NO_DEC = ["JPY","KRW","IDR"];
+const curOpts = c => Object.keys(CURS).map(k => `<option ${k===c?"selected":""}>${k}</option>`).join("");
+function curCode(v){
+  const s = String(v ?? "").trim().toUpperCase().replace(/\s/g,"");
+  if (!s) return "SGD";
+  const alias = {"S$":"SGD","SG$":"SGD","US$":"USD","USD$":"USD","RM":"MYR","RMB":"CNY","€":"EUR","£":"GBP","A$":"AUD","HK$":"HKD"};
+  if (alias[s]) return alias[s];
+  return CURS[s] ? s : null;
+}
+function fmtCur(n, c){
+  if (!c || c === "SGD") return "S$" + (Number(n)||0).toLocaleString("en-SG",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const d = NO_DEC.includes(c) ? 0 : 2;
+  return (CURS[c] || c+" ") + (Number(n)||0).toLocaleString("en-SG",{minimumFractionDigits:d,maximumFractionDigits:d});
+}
+const rateCache = {};
+// SGD for 1 unit of `cur` on `date` (YYYY-MM-DD) or the latest rate. Weekends use the previous working day.
+function getRate(cur, date){
+  if (!cur || cur === "SGD") return Promise.resolve(1);
+  const d = date && /^\d{4}-\d{2}-\d{2}$/.test(date) && date < today() ? date : "latest";
+  const k = cur + "|" + d;
+  if (!rateCache[k]) rateCache[k] = fetch(`https://api.frankfurter.dev/v1/${d}?base=${cur}&symbols=SGD`)
+    .then(r => r.ok ? r.json() : Promise.reject(new Error("rate")))
+    .then(j => { const v = j && j.rates && j.rates.SGD; if (!v) throw new Error("rate"); return v; })
+    .catch(e => { delete rateCache[k]; throw e; });
+  return rateCache[k];
+}
+const fxLatest = {};
+function ensureFx(cur){
+  if (!cur || cur === "SGD" || cur in fxLatest) return;
+  fxLatest[cur] = null;
+  getRate(cur).then(v => { fxLatest[cur] = v; render(); }).catch(() => { delete fxLatest[cur]; });
+}
 const sumAmt = arr => arr.reduce((a,x)=>a+(Number(x.amount)||0),0);
 const sumPrice = arr => arr.reduce((a,s)=>a+(Number(s.price)||0),0);
 const LEN_KEYS =["Bracelet","Anklet","Necklace","Ring","Bottle keychain","Keychain"];
@@ -472,6 +506,19 @@ function vSales(){
   </section>`;
 }
 
+function guessCat(t){ t = (t||"").toLowerCase(); return /jump ?ring/.test(t) ? "jumpring" : /chain/.test(t) ? "chain" : /charm|pendant|birthstone/.test(t) ? "charm" : "other"; }
+function newItemFromLink(link, qty, unit, sgd){
+  return {name: link.title, cat: guessCat(link.title), metal: link.metal || "", style: "", lines: (link.lines && link.lines.length) ? link.lines : ["pj"],
+    qty, unit: unit || "pcs", lowAt: null, cost: qty && sgd ? Math.round(sgd / qty * 100) / 100 : null, linkId: link.id, notes: "", photo: link.photo || "", ...stamp()};
+}
+// "link:<id>" or "item:<id>" → the supplier link and the stock item it feeds (if any)
+function resolveSrc(v){
+  const [kind, id] = String(v || "").split(":");
+  if (kind === "link") { const link = linkById(id); return {link, item: link ? S.items.find(i => i.linkId === link.id) : null}; }
+  if (kind === "item") return {link: null, item: itemById(id)};
+  return {link: null, item: null};
+}
+
 function expRow(x){
   const it = itemById(x.itemId);
   const sub = [fmtDate(x.date), EXP_CAT[x.cat], x.who ? "paid by "+x.who : "", x.pay, x.shop].filter(Boolean).map(esc).join(" · ");
@@ -479,7 +526,7 @@ function expRow(x){
     ${x.photo ? thumb(x.photo, "", "receipt") : ""}
     <div class="main"><div class="title">${esc(x.desc || EXP_CAT[x.cat] || "Expense")}</div><div class="sub">${sub}</div>
       ${it && x.qty ? `<div class="sub">Added to stock: ${esc(fmtQ(it,x.qty))} of ${esc(it.name)}</div>` : ""}</div>
-    <div class="end"><span class="money">${money(x.amount)}</span></div>
+    <div class="end" style="flex-direction:column;align-items:flex-end;gap:2px"><span class="money">${money(x.amount)}</span>${x.currency && x.currency !== "SGD" ? `<span class="sub num">${esc(fmtCur(x.origAmount, x.currency))}</span>` : ""}</div>
   </div>`;
 }
 
@@ -549,6 +596,13 @@ function vRestock(){
   </section>`;
 }
 
+function priceText(l){
+  const c = l.priceCur || "SGD";
+  if (c === "SGD") return money(l.price);
+  ensureFx(c);
+  return fmtCur(l.price, c) + (fxLatest[c] ? ` (about ${money(l.price * fxLatest[c])})` : "");
+}
+
 function vLinks(){
   const q = (S.lq||"").toLowerCase();
   const lf = S.f.lline || "all";
@@ -556,7 +610,7 @@ function vLinks(){
     .sort((a,b)=>(a.title||"").localeCompare(b.title||""));
   const rows = list.map(l => {
     const u = safeUrl(l.url); const its = S.items.filter(i=>i.linkId===l.id);
-    const meta = [l.shop||host(l.url), l.price!=null&&l.price!==""?money(l.price)+(l.pack?" / "+l.pack:""):l.pack, METAL[l.metal]&&l.metal?METAL[l.metal]:""].filter(Boolean).map(esc).join(" · ");
+    const meta = [l.shop||host(l.url), l.price!=null&&l.price!==""?priceText(l)+(l.pack?" / "+l.pack:""):l.pack, METAL[l.metal]&&l.metal?METAL[l.metal]:""].filter(Boolean).map(esc).join(" · ");
     return `<div class="row" style="align-items:flex-start">
       ${thumb(l.photo, l.metal, l.title)}
       <div class="main">
@@ -616,6 +670,7 @@ function openSheet(html, onSubmit, onReady){
 }
 function closeSheet(){ $("#sheetRoot").innerHTML = ""; }
 function writeError(err){
+  if (err && err.code === "fx") return "Couldn't get the exchange rate. Type the rate in and save again.";
   if (err && err.code === "invalid_argument") { S.canWrite = false; render(); return "This login isn't allowed to make changes. Check the members list in Supabase."; }
   if (err && err.code === "quota_exceeded") return "Storage is full. Delete old entries and try again.";
   return "Couldn't save. Check your connection and try again.";
@@ -778,13 +833,19 @@ async function adjustStock(used, sign){
 
 function expenseForm(x){
   const e = x || {date:today(), cat:"stock", who:S.who, pay:"PayNow"};
-  const itemOpts = `<option value="">Choose stock item</option>` + [...S.items].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${i.id}" ${i.id===e.itemId?"selected":""}>${esc(i.name)}</option>`).join("");
+  const srcOpts = `<option value="">Not a stock order</option>`
+    + (S.links.length ? `<optgroup label="Supplier links">${[...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l=>`<option value="link:${l.id}">${esc(l.title)}${l.shop?" — "+esc(l.shop):""}</option>`).join("")}</optgroup>` : "")
+    + (S.items.length ? `<optgroup label="Stock items">${[...S.items].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="item:${i.id}">${esc(i.name)}</option>`).join("")}</optgroup>` : "");
   const stockedIt = x && itemById(x.itemId);
   openSheet(`<h2>${x?"Edit expense":"Add expense"}</h2>
     <form>
       <div class="grid2">
         <label class="f">Date<input name="date" type="date" required value="${esc(e.date)}"></label>
-        <label class="f">Amount (S$)<input name="amount" type="number" step="0.01" min="0" required inputmode="decimal" value="${e.amount??""}"></label>
+        <label class="f">Amount<div class="uin"><input name="amount" type="number" step="0.01" min="0" required inputmode="decimal" value="${e.origAmount ?? e.amount ?? ""}"><select name="currency" id="expCur" style="width:auto" aria-label="Currency">${curOpts(e.currency||"SGD")}</select></div></label>
+      </div>
+      <div class="f" id="fxBox" hidden>Exchange rate
+        <div class="uin"><span class="u" style="min-width:auto">1 <span id="fxCur"></span> =</span><input name="rate" id="fxRate" type="number" step="any" min="0" inputmode="decimal" value="${e.rate ?? ""}" style="max-width:130px" aria-label="Exchange rate to SGD"><span class="u">SGD</span></div>
+        <span id="fxNote" style="font-weight:400"></span>
       </div>
       <label class="f">Item<input name="desc" required value="${esc(e.desc)}" placeholder="e.g. 5 m SS chain, welder, business registration"></label>
       <div class="grid2">
@@ -796,26 +857,75 @@ function expenseForm(x){
         <label class="f">Shop / supplier<input name="shop" value="${esc(e.shop)}" placeholder="optional"></label>
       </div>
       ${x ? (stockedIt && x.qty ? `<p class="note">${esc(fmtQ(stockedIt,x.qty))} of ${esc(stockedIt.name)} was added to stock when this was saved. Editing here doesn't change stock.</p>` : "")
-          : `<div class="f" id="expStock">Add to stock count (optional)
-              <div class="usedrow" style="grid-template-columns:1fr 116px"><select name="itemId" aria-label="Stock item">${itemOpts}</select><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="amount" aria-label="Amount received"><span class="u"></span></div></div>
-              <span style="font-weight:400">For a stock order: pick the stock item and how much arrived (chains in metres), and it's added to your count.</span></div>`}
+          : `<div class="f" id="expStock">Product link (optional)
+              <select name="src" id="expSrc" aria-label="Product link or stock item">${srcOpts}</select>
+              <div class="xl-row" id="expQtyRow" hidden><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="how much arrived" aria-label="Amount received" style="max-width:150px"><span class="u" id="expUnitLbl"></span></div><select name="unit" id="expUnit" style="width:auto" aria-label="Unit">${opt({pcs:"pcs",m:"metres (m)",cm:"cm"},"pcs")}</select></div>
+              <span style="font-weight:400" id="expSrcNote">For a stock order, pick the product link you bought from and enter how much arrived. It goes into stock automatically.</span></div>`}
       ${photoField(e.photo)}
       <label class="f">Notes<input name="notes" value="${esc(e.notes)}"></label>
       <div class="actions">${delBtn(!!x)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
-      const data = {date:fd.get("date"), amount:numOrNull(fd.get("amount"))||0, desc:fd.get("desc").trim(), cat:fd.get("cat"),
+      const cur = fd.get("currency") || "SGD", amtIn = numOrNull(fd.get("amount")) || 0;
+      let rate = 1;
+      if (cur !== "SGD") { rate = numOrNull(fd.get("rate")); if (!rate) { try { rate = await getRate(cur, fd.get("date")); } catch(e) { throw {code:"fx"}; } } }
+      const data = {date:fd.get("date"), amount:Math.round(amtIn*rate*100)/100, currency:cur, origAmount:amtIn, rate, desc:fd.get("desc").trim(), cat:fd.get("cat"),
         who:fd.get("who")||"", pay:fd.get("pay"), shop:fd.get("shop").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||""};
       if (x) { await S.db.collection("expenses").doc(x.id).update({...data, ...stamp()}); toast("Expense updated"); logAct(`edited an expense: ${data.desc}, ${money(data.amount)}`); return; }
-      const itemId = fd.get("itemId") || "", qty = numOrNull(fd.get("qty"));
-      const add = itemId && qty ? {itemId, qty} : null;
-      await S.db.collection("expenses").doc().set({...data, itemId: add ? itemId : "", qty: add ? qty : null, by:S.me, createdAt:Date.now()});
-      if (add) await adjustStock([add], +1);
-      toast(add ? "Expense saved and stock added" : "Expense saved");
+      const qty = numOrNull(fd.get("qty"));
+      const {link, item} = resolveSrc(fd.get("src") || "");
+      let itemId = "", made = false;
+      if (qty && (link || item)) {
+        if (item) { itemId = item.id; await adjustStock([{itemId, qty}], +1); }
+        else { const r = S.db.collection("items").doc(); itemId = r.id; made = true; await r.set(newItemFromLink(link, qty, fd.get("unit") || "pcs", data.amount)); }
+      }
+      await S.db.collection("expenses").doc().set({...data, linkId: link ? link.id : "", itemId, qty: itemId ? qty : null, by:S.me, createdAt:Date.now()});
+      toast(itemId ? (made ? "Expense saved and added to Stock as a new item" : "Expense saved and stock added") : "Expense saved");
+      if (made) logAct(`added stock item ${link.title} from a purchase`);
       logAct(`added an expense: ${data.desc}, ${money(data.amount)}${data.who && data.who !== S.who ? " (paid by "+data.who+")" : ""}`);
     }, form => {
       bindPhoto(form);
       const catSel = form.querySelector("#expCat"), box = form.querySelector("#expStock");
-      const sync = () => { if (box) box.hidden = catSel.value !== "stock"; };
+      const curSel = form.querySelector("#expCur"), fxBox = form.querySelector("#fxBox"), rateIn = form.querySelector("#fxRate"),
+            note = form.querySelector("#fxNote"), amtEl = form.querySelector("[name=amount]"), dateEl = form.querySelector("[name=date]");
+      const showFx = () => {
+        const c = curSel.value; fxBox.hidden = c === "SGD"; form.querySelector("#fxCur").textContent = c;
+        const a = numOrNull(amtEl.value), r = numOrNull(rateIn.value);
+        note.textContent = c === "SGD" ? "" : (a != null && r ? `${fmtCur(a,c)} = ${money(a*r)}. ` : "") + (rateIn.dataset.src || "");
+      };
+      const fetchFx = async () => {
+        const c = curSel.value;
+        if (c === "SGD" || rateIn.dataset.manual === "1") return showFx();
+        note.textContent = "Getting the exchange rate…";
+        try { rateIn.value = await getRate(c, dateEl.value); rateIn.dataset.src = `Rate for ${fmtDate(dateEl.value) || "today"} from the European Central Bank. You can change it to match your bank statement.`; }
+        catch(e) { rateIn.value = ""; rateIn.dataset.src = `Couldn't get the rate automatically. Type how many SGD 1 ${c} cost.`; }
+        showFx();
+      };
+      curSel.addEventListener("change", () => { delete rateIn.dataset.manual; fetchFx(); });
+      dateEl.addEventListener("change", fetchFx);
+      amtEl.addEventListener("input", showFx);
+      rateIn.addEventListener("input", () => { rateIn.dataset.manual = "1"; rateIn.dataset.src = "Using your rate."; showFx(); });
+      if (x && x.currency && x.currency !== "SGD") { rateIn.dataset.manual = "1"; rateIn.dataset.src = "Saved rate. Change it if needed."; }
+      showFx();
+      const srcSel = form.querySelector("#expSrc");
+      const onSrc = () => {
+        const {link, item} = resolveSrc(srcSel.value);
+        const row = form.querySelector("#expQtyRow"), unitSel = form.querySelector("#expUnit"), lbl = form.querySelector("#expUnitLbl"), nt = form.querySelector("#expSrcNote");
+        row.hidden = !(link || item);
+        unitSel.hidden = !!item; lbl.textContent = item ? (item.unit || "pcs") : "";
+        if (!unitSel.hidden && link) unitSel.value = guessCat(link.title) === "chain" ? "m" : "pcs";
+        if (link) {
+          catSel.value = "stock";
+          const d = form.querySelector("[name=desc]"), sh = form.querySelector("[name=shop]");
+          if (!d.value) d.value = link.title;
+          if (!sh.value) sh.value = link.shop || host(link.url) || "";
+          if (link.priceCur && link.priceCur !== "SGD" && curSel.value === "SGD" && !amtEl.value) { curSel.value = link.priceCur; delete rateIn.dataset.manual; fetchFx(); }
+        }
+        nt.textContent = !srcSel.value ? "For a stock order, pick the product link you bought from and enter how much arrived. It goes into stock automatically."
+          : item ? `Adds to the stock item “${item.name}” (now ${fmtQ(item, item.qty)}).`
+          : `No stock item uses this link yet, so saving creates “${link.title}” in Stock with this amount.`;
+      };
+      if (srcSel) srcSel.addEventListener("change", onSrc);
+      const sync = () => {};
       sync(); catSel.addEventListener("change", sync);
       const sel = form.querySelector("[name=itemId]");
       sel && sel.addEventListener("change", () => { const it = itemById(sel.value), u = form.querySelector("#expStock .u"); if (u) u.textContent = it ? (it.unit || "pcs") : ""; });
@@ -851,7 +961,7 @@ function linkForm(l){
         <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label></div>
       </div>
       <div class="grid2">
-        <label class="f">Price (S$)<input name="price" type="number" step="0.01" min="0" inputmode="decimal" value="${e.price??""}"></label>
+        <label class="f">Price<div class="uin"><input name="price" type="number" step="0.01" min="0" inputmode="decimal" value="${e.price??""}"><select name="priceCur" style="width:auto" aria-label="Currency">${curOpts(e.priceCur||"SGD")}</select></div></label>
         <label class="f">Per (pack size)<input name="pack" value="${esc(e.pack)}" placeholder="e.g. 1 m, 100 pcs"></label>
       </div>
       ${photoField(e.photo)}
@@ -861,7 +971,7 @@ function linkForm(l){
       <div class="actions">${delBtn(!!l)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const url = fd.get("url").trim();
-      const data = {title:fd.get("title").trim(), url, lines:["pj","kc"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), price:numOrNull(fd.get("price")),
+      const data = {title:fd.get("title").trim(), url, lines:["pj","kc"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), price:numOrNull(fd.get("price")), priceCur:fd.get("priceCur")||"SGD",
         pack:fd.get("pack").trim(), specs:fd.get("specs").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
       const ref = l ? S.db.collection("links").doc(l.id) : S.db.collection("links").doc();
       if (!l) data.createdAt = Date.now();
@@ -912,8 +1022,8 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
   document.head.appendChild(s);
 });
 const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes"];
-const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price (S$)","Pack size","Specifications","Notes"];
-const EXP_COLS = ["ID","Date","Type","Item","Amount (S$)","Paid by","Payment","Shop / supplier","Notes"];
+const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes"];
+const EXP_COLS = ["ID","Date","Type","Item","Product link","Qty received","Unit","Amount","Currency","Amount (S$)","Paid by","Payment","Shop / supplier","Notes"];
 const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Payment","Customer / event","Materials used","Sold by"];
 const HELP = [
   "momento.co stock book spreadsheet", "Co-owned by Jessica & Valerie", "",
@@ -931,8 +1041,10 @@ const HELP = [
   "Expenses Type: Stock & supplies, One-time / equipment, Admin & fees, Packaging & marketing, Other",
   "Expenses Item: what you bought or paid for, in your own words (e.g. 5 m SS chain, welder).",
   "Links Used for: PJ, Keychain or Both.",
+  "Currency (Expenses and Links): SGD, USD, MYR, CNY, EUR, GBP, AUD, HKD, JPY, KRW, THB, IDR, PHP or INR. Blank means SGD.",
+  "Expenses Product link: for a stock order, type the Product name from the Links sheet and fill Qty received and Unit. New expense rows then add that amount to stock (a link with no stock item yet creates one).",
+  "Expenses in another currency: type the Amount in that currency and leave Amount (S$) blank. The app converts it using that date's exchange rate.",
   "Expenses Paid by: Jessica or Valerie. Date: any normal date, e.g. 3/10/2026 (day/month/year).",
-  "Expenses uploaded here don't change stock counts. To add a stock order to your count, add it in the app.",
   "",
   "Uploading never deletes anything. The Sales sheet is for reference only; log sales in the app."
 ];
@@ -948,7 +1060,7 @@ async function buildWorkbook(){
     "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||""}));
   const links = [...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l => ({
     "ID":l.id, "Product name":l.title||"", "Link":l.url||"", "Shop":l.shop||"", "Metal":metalText(l.metal), "Used for":linesText(l.lines),
-    "Price (S$)":l.price ?? "", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||""}));
+    "Price":l.price ?? "", "Currency":l.priceCur || "SGD", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||""}));
   const sales = [...S.sales].sort(bySaleDesc).map(s => ({
     "Date":s.date||"", "Line":LINE[s.line]||"", "Product":s.product||"", "Details":s.desc||"", "Price (S$)":Number(s.price)||0,
     "Payment":s.pay||"", "Customer / event":s.customer||"",
@@ -956,11 +1068,11 @@ async function buildWorkbook(){
     "Sold by": s.who || (!s.by ? "" : s.by === S.me ? (S.myName || "") : nameOf(s.by))}));
   const add = (rows, cols, widths, name) => { const ws = X.utils.json_to_sheet(rows, {header:cols}); ws["!cols"] = widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb, ws, name); };
   add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30], "Stock");
-  add(links, LINK_COLS, [22,36,42,18,8,11,10,12,46,30], "Links");
+  add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30], "Links");
   const exps = [...S.expenses].sort(bySaleDesc).map(x => ({
-    "ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "Item":x.desc||"", "Amount (S$)":Number(x.amount)||0,
+    "ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "Item":x.desc||"", "Product link":linkById(x.linkId)?.title || "", "Qty received":x.qty ?? "", "Unit":x.qty ? (itemById(x.itemId)?.unit || "") : "", "Amount":x.origAmount ?? (Number(x.amount)||0), "Currency":x.currency || "SGD", "Amount (S$)":Number(x.amount)||0,
     "Paid by":x.who||"", "Payment":x.pay||"", "Shop / supplier":x.shop||"", "Notes":x.notes||""}));
-  add(exps, EXP_COLS, [22,11,22,40,12,10,10,20,30], "Expenses");
+  add(exps, EXP_COLS, [22,11,22,36,32,11,6,11,9,12,10,10,20,30], "Expenses");
   add(sales, SALES_COLS, [11,20,16,36,10,10,18,42,14], "Sales");
   const help = X.utils.aoa_to_sheet(HELP.map(l=>[l])); help["!cols"] = [{wch:110}];
   X.utils.book_append_sheet(wb, help, "How to use");
@@ -1026,10 +1138,13 @@ async function planImport(file){
     if (keys.includes("amount") || keys.includes("paid by")) expRows = r;
     else if (keys.includes("product name") || keys.includes("link")) linkRows = r; else stockRows = r;
   }
-  const plan = {writes:[], c:{sn:0,sc:0,ss:0,ln:0,lc:0,ls:0,en:0,ec:0,es:0}, warnings:[]};
-  const doExpenses = () => (expRows||[]).forEach((r, i) => {
-    const desc = txt(pick(r,"item","what for","description")), amount = numCell(pick(r,"amount","cost","price"));
-    if (!desc && amount == null) return;
+  const plan = {writes:[], stockAdds:[], c:{sn:0,sc:0,ss:0,ln:0,lc:0,ls:0,en:0,ec:0,es:0}, warnings:[]};
+  const doExpenses = async () => { for (const [i, r] of (expRows||[]).entries()) {
+    const desc = txt(pick(r,"item","what for","description"));
+    const keyOf = name => Object.keys(r).find(k => norm(k) === name);
+    const amtKey = keyOf("amount"), sgdKey = keyOf("amount (s$)");
+    const amountIn = numCell(amtKey ? r[amtKey] : ""), sgdIn = numCell(sgdKey ? r[sgdKey] : "");
+    if (!desc && amountIn == null && sgdIn == null) continue;
     const idIn = txt(pick(r,"id")); const ex = idIn ? S.expenses.find(x => x.id === idIn) : null;
     if (idIn && !ex) plan.warnings.push(`Expenses row ${i+2}: ID “${idIn}” isn't in the app, so it was added as new.`);
     let date = dateCell(pick(r,"date"));
@@ -1037,12 +1152,31 @@ async function planImport(file){
     const whoIn = txt(pick(r,"paid by","who"));
     let who = PEOPLE.find(p => norm(p) === norm(whoIn)) || "";
     if (!who) { who = ex?.who || ""; if (whoIn) plan.warnings.push(`Expenses row ${i+2}: “${whoIn}” isn't Jessica or Valerie, so Paid by was left blank.`); }
-    const data = {date, amount: amount || 0, desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who,
+    let cur = curCode(pick(r,"currency"));
+    if (cur === null) { plan.warnings.push(`Expenses row ${i+2}: currency “${txt(pick(r,"currency"))}” isn't supported, so the amount was taken as SGD.`); cur = "SGD"; }
+    const orig = amountIn ?? sgdIn ?? 0;
+    let sgd, rate = 1;
+    if (cur === "SGD") sgd = orig;
+    else if (ex && ex.currency === cur && ex.origAmount === orig && ex.date === date) { sgd = ex.amount; rate = ex.rate; }
+    else if (!ex && sgdIn != null && amountIn != null) { sgd = sgdIn; rate = orig ? Math.round(sgdIn / orig * 10000) / 10000 : 1; }
+    else {
+      try { rate = await getRate(cur, date); sgd = Math.round(orig * rate * 100) / 100; }
+      catch(e) { plan.warnings.push(`Expenses row ${i+2}: couldn't get the ${cur} exchange rate, so this row was skipped. Try uploading again later.`); continue; }
+    }
+    const data = {date, amount: sgd, currency: cur, origAmount: orig, rate, desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who,
       pay: txt(pick(r,"payment")), shop: txt(pick(r,"shop / supplier","shop","supplier")), notes: txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("expenses").doc().id;
     if (ex) { if (same(ex, data)) plan.c.es++; else { plan.c.ec++; plan.writes.push({col:"expenses", id, data, isNew:false}); } }
-    else { plan.c.en++; plan.writes.push({col:"expenses", id, data:{...data, itemId:"", qty:null, createdAt:Date.now()}, isNew:true}); }
-  });
+    else {
+      plan.c.en++; plan.writes.push({col:"expenses", id, data:{...data, itemId:"", linkId:"", qty:null, createdAt:Date.now()}, isNew:true});
+      const linkIn = txt(pick(r,"product link")), qtyIn = numCell(pick(r,"qty received","qty","quantity"));
+      if (linkIn && qtyIn) {
+        const lid = byTitle.get(norm(linkIn)), iid = itemNames.get(norm(linkIn));
+        if (lid || iid) plan.stockAdds.push({expId:id, linkId: lid || "", itemId: lid ? "" : iid, qty: qtyIn, unit: mapUnit(pick(r,"unit"), "pcs"), sgd, name: linkIn});
+        else plan.warnings.push(`Expenses row ${i+2}: product link “${linkIn}” doesn't match a Product name on the Links sheet, so stock wasn't changed.`);
+      } else if (linkIn) plan.warnings.push(`Expenses row ${i+2}: no Qty received, so stock wasn't changed.`);
+    }
+  } };
   const byTitle = new Map(S.links.map(l => [norm(l.title), l.id]));
   const itemNames = new Map(S.items.map(i => [norm(i.name), i.id]));
   (linkRows||[]).forEach((r, i) => {
@@ -1051,7 +1185,7 @@ async function planImport(file){
     if (idIn && !ex) plan.warnings.push(`Links row ${i+2}: ID “${idIn}” isn't in the app, so it was added as new.`);
     const url = txt(pick(r,"link","url"));
     if (url && !safeUrl(url)) plan.warnings.push(`Links row ${i+2}: the link should start with https://`);
-    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), lines:mapLines(pick(r,"used for"), ex?.lines || []), price:numCell(pick(r,"price")),
+    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), lines:mapLines(pick(r,"used for"), ex?.lines || []), price:numCell(pick(r,"price")), priceCur:curCode(pick(r,"currency")) || "SGD",
       pack:txt(pick(r,"pack size","pack")), specs:txt(pick(r,"specifications","specs")), notes:txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("links").doc().id;
     byTitle.set(norm(title), id);
@@ -1075,7 +1209,7 @@ async function planImport(file){
     if (ex) { if (same(ex, data)) plan.c.ss++; else { plan.c.sc++; plan.writes.push({col:"items", id, data, isNew:false}); } }
     else { plan.c.sn++; plan.writes.push({col:"items", id, data, isNew:true}); }
   });
-  doExpenses();
+  await doExpenses();
   if (!stockRows && !linkRows && !expRows) plan.warnings.push("No Stock, Links or Expenses sheet was found in this file.");
   return plan;
 }
@@ -1085,7 +1219,17 @@ async function applyImport(plan, st){
   for (const w of plan.writes) {
     const ref = S.db.collection(w.col).doc(w.id); const data = {...w.data, ...stamp()};
     await (w.isNew ? ref.set(data) : ref.update(data));
-    n++; st.textContent = `Saving ${n} of ${plan.writes.length}…`;
+    n++; st.textContent = `Saving ${n} of ${plan.writes.length + plan.stockAdds.length}…`;
+  }
+  // stock orders from new expense rows: add to the linked stock item, or create it from the link
+  for (const a of plan.stockAdds) {
+    const link = a.linkId ? linkById(a.linkId) : null;
+    const item = a.itemId ? itemById(a.itemId) : (link ? S.items.find(i => i.linkId === link.id) : null);
+    let itemId = "";
+    if (item) { itemId = item.id; await adjustStock([{itemId, qty:a.qty}], +1); }
+    else if (link) { const r = S.db.collection("items").doc(); itemId = r.id; await r.set(newItemFromLink(link, a.qty, a.unit, a.sgd)); }
+    if (itemId) await S.db.collection("expenses").doc(a.expId).update({itemId, linkId: link ? link.id : "", qty: a.qty});
+    n++; st.textContent = `Saving ${n} of ${plan.writes.length + plan.stockAdds.length}…`;
   }
 }
 
@@ -1114,11 +1258,12 @@ function excelSheet(){
     let plan;
     try { plan = await planImport(file); }
     catch(e) { res.innerHTML = `<div class="status">${e?.message==="load" ? "Couldn't load the Excel tool. Check your connection and try again." : "Couldn't read that file. Upload the .xlsx you downloaded from here, or a .csv."}</div>`; return; }
-    const c = plan.c, n = plan.writes.length;
+    const c = plan.c, n = plan.writes.length + plan.stockAdds.length;
     res.innerHTML = `<div class="xl-sum">
       <div><b>Stock:</b> <span class="num">${c.sn} new · ${c.sc} changed · ${c.ss} unchanged</span></div>
       <div><b>Links:</b> <span class="num">${c.ln} new · ${c.lc} changed · ${c.ls} unchanged</span></div>
       <div><b>Expenses:</b> <span class="num">${c.en} new · ${c.ec} changed · ${c.es} unchanged</span></div>
+      ${plan.stockAdds.length ? `<div><b>Stock from purchases:</b> ${plan.stockAdds.map(a => esc(`${a.qty} ${a.unit} ${a.name}`)).slice(0,5).join(", ")}${plan.stockAdds.length>5?"…":""}</div>` : ""}
       ${plan.warnings.length ? `<ul class="xl-warn">${plan.warnings.slice(0,8).map(w=>`<li>${esc(w)}</li>`).join("")}${plan.warnings.length>8?`<li>…and ${plan.warnings.length-8} more</li>`:""}</ul>` : ""}
       ${n ? `<div><button type="button" class="btn primary" id="xlApply">Apply ${n} change${n===1?"":"s"}</button></div>` : `<p class="note">Nothing to change. The file matches the app.</p>`}
       <p class="note" id="xlApplyStatus"></p></div>`;
