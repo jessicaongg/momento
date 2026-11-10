@@ -96,6 +96,7 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .chip{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--muted);font:600 .8rem var(--f-body);padding:5px 11px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .pill{display:inline-flex;align-items:center;font-size:.7rem;font-weight:700;letter-spacing:.03em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.fin{background:var(--cream);color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
 .pill.pj{background:var(--pj-bg);color:var(--pj)} .pill.kc{background:var(--kc-bg);color:var(--kc)}
 .pill.low{background:var(--warn-bg);color:var(--warn)} .pill.out{background:var(--bad-bg);color:var(--bad)}
 .pill.uncounted{background:var(--sunk);color:var(--muted)}
@@ -121,6 +122,9 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .row .end{display:flex;align-items:center;gap:8px;flex:none}
 .row.clickable{cursor:pointer}
 .row.clickable:hover{background:var(--sunk)}
+.fav{appearance:none;border:0;background:none;font-size:1.25rem;line-height:1;color:var(--muted);cursor:pointer;padding:0 2px 0 0}
+.fav[aria-pressed="true"]{color:var(--gold)}
+.fav:disabled{cursor:default}
 .thumb{width:46px;height:46px;border-radius:9px;flex:none;position:relative;background:var(--sunk);border:1px solid var(--line);padding:0;overflow:hidden;display:grid;place-items:center;cursor:pointer}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb .sw{position:absolute;right:3px;bottom:3px;width:10px;height:10px;box-shadow:0 0 0 1.5px var(--surface)}
@@ -400,15 +404,16 @@ function itemRow(it, withQty=true){
   const st = stockState(it);
   const pill = it.dead ? `<span class="pill uncounted">Dead stock</span>` : st==="low" ? `<span class="pill low">Low</span>` : st==="out" ? `<span class="pill out">Out</span>` : st==="uncounted" ? `<span class="pill uncounted">Not counted</span>` : "";
   const lines = (it.lines||[]).map(l=>`<span class="pill ${l}">${LINE_SHORT[l]}</span>`).join("");
-  const sub = [CAT[it.cat], it.finish ? FINISH[it.finish] : "", it.style, it.cost!=null ? money(it.cost)+" / "+(it.unit||"pc") : ""].filter(Boolean).map(esc).join(" · ");
+  const fin = it.finish ? `<span class="pill fin">${esc(FINISH[it.finish])}</span>` : "";
+  const sub = [CAT[it.cat], it.style, it.cost!=null ? money(it.cost)+" / "+(it.unit||"pc") : ""].filter(Boolean).map(esc).join(" · ");
   const q = it.qty==null ? "—" : (Math.round(it.qty*100)/100);
   return `<div class="row">
     ${thumb(it.photo, it.metal, it.name)}
     <div class="main clickable" data-a="editItem" data-id="${it.id}" role="button" tabindex="0">
-      <div class="title">${esc(it.name)} ${lines} ${pill}</div>
+      <div class="title">${esc(it.name)} ${lines} ${fin} ${pill}</div>
       <div class="sub">${sub}${isM(it)&&it.qty!=null?` · ${Math.round(it.qty*100)} cm left`:""}${it.lowAt!=null?` · restock at ${esc(it.lowAt)} ${esc(it.unit||"")}`:""}</div>
     </div>
-    ${withQty ? `<div class="qty">
+    ${it.dead && S.canWrite ? `<button type="button" class="btn small" data-a="unarchive" data-id="${it.id}">Restore</button>` : withQty ? `<div class="qty">
       ${S.canWrite?`<button data-a="dec" data-id="${it.id}" aria-label="Use ${isM(it)?"10 cm of":"one"} ${esc(it.name)}">−</button>`:""}
       <span class="v">${q}<small>${esc(it.unit||"")}</small></span>
       ${S.canWrite?`<button data-a="inc" data-id="${it.id}" aria-label="Add ${isM(it)?"10 cm of":"one"} ${esc(it.name)}">+</button>`:""}
@@ -425,6 +430,7 @@ function saleRow(s){
       <div class="title"><span class="pill ${s.line}">${LINE_SHORT[s.line]||""}</span> ${esc(s.product||"Sale")}${s.desc?` <span style="font-weight:400;color:var(--muted)">— ${esc(s.desc)}</span>`:""}</div>
       <div class="sub">${sub}</div>
       ${used?`<div class="sub">Used: ${esc(used)}</div>`:""}
+      ${Number(s.discount) > 0 ? `<div class="sub">${esc(`Discount ${money(s.discount)}${s.discountFor ? " (" + s.discountFor + ")" : ""} off ${money(s.listPrice)}`)}</div>` : ""}
     </div>
     <div class="end"><span class="money">${money(s.price)}</span></div>
   </div>`;
@@ -471,7 +477,7 @@ function chipset(group, opts, cur){
 function vStock(){
   const f = S.f;
   let items = S.items.filter(i =>
-    (f.cat==="all" || (f.cat==="dead" ? !!i.dead : i.cat===f.cat)) && (f.metal==="all"||i.metal===f.metal) &&
+    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || i.cat===f.cat)) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) &&
     (f.line==="all"||(i.lines||[]).includes(f.line)) &&
     (!f.q || (i.name+" "+(i.style||"")+" "+(i.notes||"")).toLowerCase().includes(f.q.toLowerCase())));
   const order = {chain:0,jumpring:1,charm:2,other:3};
@@ -480,15 +486,17 @@ function vStock(){
     <div class="sec-head"><h2>Stock</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${S.canWrite?`<button class="btn" data-a="lengths">Chain lengths</button>`:""}<button class="btn" data-a="excel">Excel</button>${addBtn("newItem","Add item")}</div></div>
     <div class="filters">
       <input id="q" type="search" placeholder="Search stock (e.g. birthstone, double-sided)" value="${esc(f.q)}" aria-label="Search stock">
-      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["other","Other"],["dead","Dead stock"]],f.cat)}
+      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["other","Other"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["YG","YG","YG"],["SS","SS","SS"],["RG","RG","RG"]],f.metal)}
+      ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],f.finish||"all")}
       ${chipset("line",[["all","Both lines"],["pj","Permanent jewellery"],["kc","Keychain"]],f.line)}
     </div>
-    <p class="note">Tap − / + to use or add one unit. Tap an item to edit its count, restock level or supplier link. Charms can be tagged for both lines.</p>
-    <div class="list">${loading("items") || (items.length ? items.map(i=>itemRow(i)).join("") : `<div class="empty">${S.items.length?"No items match these filters.":"No stock yet. Add your chains, jump rings and charms with “Add item”."}</div>`)}</div>
+    ${f.cat === "dead" ? `<p class="note">The archive keeps dead stock out of your main list and restock alerts. Tap Restore to bring an item back, or open it to write off more pieces.</p>`
+      : `<p class="note">Tap − / + to use or add one unit. Tap an item to edit its count, restock level or supplier link. Charms can be tagged for both lines. Dead stock lives in the Archive.</p>`}
+    <div class="list">${loading("items") || (items.length ? items.map(i=>itemRow(i)).join("") : `<div class="empty">${f.cat === "dead" ? "Nothing archived. To archive an item, open it and tick “Move to archive (dead stock)”." : S.items.length?"No items match these filters.":"No stock yet. Add your chains, jump rings and charms with “Add item”."}</div>`)}</div>
     ${(() => {
       const w = [...S.deadstock].sort((a,b) => (b.date||"").localeCompare(a.date||"") || (b.createdAt||0) - (a.createdAt||0));
-      if (!w.length || (f.cat !== "dead" && f.cat !== "all")) return "";
+      if (!w.length || f.cat !== "dead") return "";
       const total = w.reduce((a, x) => a + (Number(x.value) || 0), 0);
       return `<h3>Written off</h3><p class="note num">${w.length} write-off${w.length===1?"":"s"} · about ${money(total)} at cost</p>
         <div class="list">${w.slice(0, 50).map(x => `<div class="row"><div class="main"><div class="title">${esc(x.name)} <span class="pill out">${esc(WRITE_OFF[x.reason] || "Written off")}</span></div>
@@ -552,7 +560,7 @@ async function deliver(expId){
   const {link, item} = stockTarget(x);
   let itemId = "", made = false;
   if (item) { itemId = item.id; await adjustStock([{itemId, qty}], +1); }
-  else if (link) { const r = S.db.collection("items").doc(); itemId = r.id; made = true; await r.set({...newItemFromLink(link, qty, x.unit || "pcs", x.amount), photo: link.photo || x.photo || ""}); }
+  else if (link) { const r = S.db.collection("items").doc(); itemId = r.id; made = true; await r.set({...newItemFromLink(link, qty, x.unit || "pcs", x.amount), photo: link.photo || x.photo || "", finish: x.finish || link.finish || ""}); }
   else return null;
   await S.db.collection("expenses").doc(expId).update({delivered:true, deliveredAt:Date.now(), itemId});
   const it = itemById(itemId) || {unit: x.unit};
@@ -563,7 +571,7 @@ async function deliver(expId){
 function expRow(x){
   const {link, item} = stockTarget(x);
   const pend = isPending(x);
-  const sub = [fmtDate(x.date), EXP_CAT[x.cat], x.who ? "paid by "+x.who : "", x.pay, x.shop].filter(Boolean).map(esc).join(" · ");
+  const sub = [fmtDate(x.date), EXP_CAT[x.cat], x.finish ? FINISH[x.finish] : "", x.who ? "paid by "+x.who : "", x.pay, x.shop].filter(Boolean).map(esc).join(" · ");
   const stockLine = isDelivered(x) && item && x.qty ? `Added to stock: ${fmtQ(item, x.qty)} of ${item.name}`
     : pend ? `On the way: ${x.qty} ${x.unit || item?.unit || ""} of ${item?.name || link?.title || "stock"}` : "";
   const disc = Number(x.discount) > 0 ? `Saved ${fmtCur(x.discount, x.currency)}${x.discountFor ? " (" + x.discountFor + ")" : ""}` : "";
@@ -654,15 +662,16 @@ function priceText(l){
 function vLinks(){
   const q = (S.lq||"").toLowerCase();
   const lf = S.f.lline || "all";
-  const list = S.links.filter(l => (!q || [l.title,l.shop,l.specs,l.notes,l.url].join(" ").toLowerCase().includes(q)) && (lf === "all" || (l.lines||[]).includes(lf)))
-    .sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+  const favOnly = S.f.lfav === "fav";
+  const list = S.links.filter(l => (!q || [l.title,l.shop,l.specs,l.notes,l.url].join(" ").toLowerCase().includes(q)) && (lf === "all" || (l.lines||[]).includes(lf)) && (!favOnly || l.fav) && (!S.f.lfin || S.f.lfin === "all" || (l.finish||"") === S.f.lfin))
+    .sort((a,b)=>(b.fav ? 1 : 0) - (a.fav ? 1 : 0) || (a.title||"").localeCompare(b.title||""));
   const rows = list.map(l => {
     const u = safeUrl(l.url); const its = S.items.filter(i=>i.linkId===l.id);
-    const meta = [l.shop||host(l.url), l.price!=null&&l.price!==""?priceText(l)+(l.pack?" / "+l.pack:""):l.pack, METAL[l.metal]&&l.metal?METAL[l.metal]:"", l.finish?FINISH[l.finish]:""].filter(Boolean).map(esc).join(" · ");
+    const meta = [l.shop||host(l.url), l.price!=null&&l.price!==""?priceText(l)+(l.pack?" / "+l.pack:""):l.pack, METAL[l.metal]&&l.metal?METAL[l.metal]:""].filter(Boolean).map(esc).join(" · ");
     return `<div class="row" style="align-items:flex-start">
       ${thumb(l.photo, l.metal, l.title)}
       <div class="main">
-        <div class="title">${esc(l.title)} ${(l.lines||[]).map(x=>`<span class="pill ${x}">${LINE_SHORT[x]}</span>`).join("")}${S.expenses.some(e => isPending(e) && e.linkId === l.id) ? ` <span class="pill low">On the way</span>` : ""}</div>
+        <div class="title"><button type="button" class="fav" data-a="favLink" data-id="${l.id}" aria-pressed="${!!l.fav}" aria-label="${l.fav ? "Remove from" : "Add to"} favourites" ${S.canWrite ? "" : "disabled"}>${l.fav ? "★" : "☆"}</button>${esc(l.title)} ${(l.lines||[]).map(x=>`<span class="pill ${x}">${LINE_SHORT[x]}</span>`).join("")}${l.finish ? ` <span class="pill fin">${esc(FINISH[l.finish])}</span>` : ""}${S.expenses.some(e => isPending(e) && e.linkId === l.id) ? ` <span class="pill low">On the way</span>` : ""}</div>
         <div class="sub">${meta}</div>
         ${u?`<div class="sub"><a class="ext" href="${esc(u)}" target="_blank" rel="noopener">${esc(host(u)||u)}</a></div>`:""}
         ${l.specs?`<div class="specs">${esc(l.specs)}</div>`:""}
@@ -679,6 +688,8 @@ function vLinks(){
     <div class="sec-head"><h2>Wishlist &amp; links</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newLink","Add link")}</div></div>
     <input id="lq" type="search" placeholder="Search links, shops or specs" value="${esc(S.lq||"")}" aria-label="Search links">
     ${chipset("lline",[["all","Both lines"],["pj","Permanent jewellery"],["kc","Keychain"]],lf)}
+    ${chipset("lfav",[["all","All links"],["fav","★ Favourites"]],S.f.lfav||"all")}
+    ${chipset("lfin",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],S.f.lfin||"all")}
     <p class="note">Save where you buy each supply and its exact specs (metal, gauge, chain style, length, pack size), so either of you can reorder the same thing.</p>
     <div class="list">${loading("links") || (list.length ? rows : `<div class="empty">${S.links.length?"No links match.":"No links yet. Add the shop listing for a chain or charm with “Add link”."}</div>`)}</div>
   </section>`;
@@ -781,7 +792,7 @@ function itemForm(it){
         <label class="f">Supplier link<select name="linkId">${linkOpts(e.linkId)}</select></label>
       </div>
       <div class="f">Dead stock
-        <label class="keep"><input type="checkbox" name="dead" ${e.dead?"checked":""}> Mark as dead stock (not selling, no restock alerts)</label>
+        <label class="keep"><input type="checkbox" name="dead" ${e.dead?"checked":""}> Move to archive (dead stock: not selling, no restock alerts)</label>
         ${it ? `<div class="xl-row"><div class="uin"><input name="woQty" type="number" step="any" min="0" inputmode="decimal" placeholder="write off" aria-label="Amount to write off" style="max-width:120px"><span class="u">${esc(e.unit||"pcs")}</span></div>
           <select name="woReason" style="width:auto" aria-label="Reason">${opt(WRITE_OFF,"damaged")}</select></div>
           <span style="font-weight:400">Write off pieces that are damaged, lost or won't sell. They come off the In stock count and are listed under Stock → Dead stock.</span>` : ""}
@@ -805,7 +816,7 @@ function itemForm(it){
           value: data.cost != null ? Math.round(data.cost * wo * 100) / 100 : null, who: S.who || "", createdAt: Date.now()});
         logAct(`wrote off ${wo} ${data.unit||""} of ${data.name} (${(WRITE_OFF[reason]||reason).toLowerCase()})`);
       }
-      if (it && !!it.dead !== data.dead) logAct(`${data.dead ? "marked" : "unmarked"} ${data.name} as dead stock`);
+      if (it && !!it.dead !== data.dead) logAct(`${data.dead ? "moved" : "restored"} ${data.name} ${data.dead ? "to" : "from"} the archive`);
       logAct(it ? (it.qty !== data.qty ? `edited ${data.name}: ${fmtQ(data,it.qty)} → ${fmtQ(data,data.qty)}` : `edited ${data.name}`) : `added stock item ${data.name}`);
     }, form => { bindPhoto(form); bindDelete(form, async () => { await S.db.collection("items").doc(it.id).delete(); toast("Item deleted"); logAct(`deleted stock item ${it.name}`); }); });
 }
@@ -824,8 +835,13 @@ function saleForm(s){
       </div>
       <div class="grid2">
         <label class="f">Product<select name="product" id="saleProduct"></select></label>
-        <label class="f">Price (S$)<input name="price" type="number" step="0.01" min="0" required inputmode="decimal" value="${e.price??""}"></label>
+        <label class="f">Price (S$)<input name="price" type="number" step="0.01" min="0" required inputmode="decimal" value="${e.listPrice ?? e.price ?? ""}"></label>
       </div>
+      <div class="grid2">
+        <label class="f">Discount (S$)<input name="discount" type="number" step="0.01" min="0" inputmode="decimal" value="${e.discount || ""}" placeholder="0"></label>
+        <label class="f">Discount for<input name="discountFor" value="${esc(e.discountFor)}" placeholder="e.g. friends, bundle, birthday promo"></label>
+      </div>
+      <p class="note" id="salePaid"></p>
       <label class="f">Sold by<select name="who">${PEOPLE.map(p=>`<option ${p===(e.who||S.who)?"selected":""}>${p}</option>`).join("")}</select></label>
       <label class="f">Details<input name="desc" value="${esc(e.desc)}" placeholder="e.g. SS figaro + March birthstone, name engraved"></label>
       <div class="grid2">
@@ -846,18 +862,24 @@ function saleForm(s){
       const its = fd.getAll("usedItem"), qs = fd.getAll("usedQty");
       // Chains kept in metres are entered in cm here, then stored in metres.
       its.forEach((id,i)=>{ const q=numOrNull(qs[i]); if(id && q) used.push({itemId:id, qty: isM(itemById(id)) ? q/100 : q}); });
-      const data = {date:fd.get("date"), line:fd.get("line"), product:fd.get("product"), price:numOrNull(fd.get("price"))||0,
+      const listP = numOrNull(fd.get("price")) || 0, disc = Math.min(Math.max(0, numOrNull(fd.get("discount")) || 0), listP);
+      const data = {date:fd.get("date"), line:fd.get("line"), product:fd.get("product"), price:Math.round((listP - disc) * 100) / 100,
+        listPrice:listP, discount:disc, discountFor:(fd.get("discountFor")||"").trim(),
         desc:fd.get("desc").trim(), pay:fd.get("pay"), customer:fd.get("customer").trim(), used, who:fd.get("who")||""};
       if (s) { await S.db.collection("sales").doc(s.id).update({...data, ...stamp()}); toast("Sale updated"); logAct(`edited a sale: ${data.product}, ${money(data.price)}`); return; }
       const deduct = !!fd.get("deduct") && used.length > 0;
       await S.db.collection("sales").doc().set({...data, deducted:deduct, by:S.me, createdAt:Date.now()});
       if (deduct) await adjustStock(used, -1);
       toast(deduct ? "Sale logged and stock updated" : "Sale logged");
-      logAct(`logged a sale${data.who && data.who !== S.who ? " for "+data.who : ""}: ${data.product}, ${money(data.price)}`);
+      logAct(`logged a sale${data.who && data.who !== S.who ? " for "+data.who : ""}: ${data.product}, ${money(data.price)}${disc ? ` (${money(disc)} off)` : ""}`);
     }, form => {
       const lineSel = form.querySelector("#saleLine"), prodSel = form.querySelector("#saleProduct");
       const fill = (cur) => { const list = PRODUCTS[lineSel.value]; prodSel.innerHTML = list.map(p=>`<option ${p===cur?"selected":""}>${p}</option>`).join(""); };
       fill(e.product); lineSel.addEventListener("change", () => fill());
+      const pEl = form.querySelector("[name=price]"), dEl = form.querySelector("[name=discount]"), paidEl = form.querySelector("#salePaid");
+      const showPaid = () => { const pr = numOrNull(pEl.value), d = Math.min(numOrNull(dEl.value) || 0, pr || 0);
+        paidEl.textContent = pr != null && d ? `Customer pays ${money(pr - d)} after ${money(d)} off.` : ""; };
+      pEl.addEventListener("input", showPaid); dEl.addEventListener("input", showPaid); showPaid();
       // Fill in the usual chain length for this product, unless someone typed their own.
       const autoLen = row => {
         const sel = row.querySelector("[name=usedItem]"), q = row.querySelector("[name=usedQty]");
@@ -909,18 +931,17 @@ function expenseForm(x, preset){
     <form>
       <div class="grid2">
         <label class="f">Date<input name="date" type="date" required value="${esc(e.date)}"></label>
-        <label class="f">Price (before discount)<div class="uin"><input name="amount" type="number" step="0.01" min="0" required inputmode="decimal" value="${listPrice}"><select name="currency" id="expCur" style="width:auto" aria-label="Currency">${curOpts(e.currency||"SGD")}</select></div></label>
-      </div>
-      <div class="grid2">
-        <label class="f">Discount<input name="discount" type="number" step="0.01" min="0" inputmode="decimal" value="${e.discount || ""}" placeholder="0"></label>
-        <label class="f">Discount for<input name="discountFor" value="${esc(e.discountFor)}" placeholder="e.g. voucher, bulk buy, 11.11 sale"></label>
+        <label class="f">Amount<div class="uin"><input name="amount" type="number" step="0.01" min="0" required inputmode="decimal" value="${listPrice}"><select name="currency" id="expCur" style="width:auto" aria-label="Currency">${curOpts(e.currency||"SGD")}</select></div></label>
       </div>
       <p class="note" id="paidNote"></p>
       <div class="f" id="fxBox" hidden>Exchange rate
         <div class="uin"><span class="u" style="min-width:auto">1 <span id="fxCur"></span> =</span><input name="rate" id="fxRate" type="number" step="any" min="0" inputmode="decimal" value="${e.rate ?? ""}" style="max-width:130px" aria-label="Exchange rate to SGD"><span class="u">SGD</span></div>
         <span id="fxNote" style="font-weight:400"></span>
       </div>
-      <label class="f">Item<input name="desc" required value="${esc(e.desc)}" placeholder="e.g. 5 m SS chain, welder, business registration"></label>
+      <div class="grid2">
+        <label class="f">Item<input name="desc" required value="${esc(e.desc)}" placeholder="e.g. 5 m SS chain, welder"></label>
+        <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
+      </div>
       <div class="grid2">
         <label class="f">Type<select name="cat" id="expCat">${opt(EXP_CAT,e.cat)}</select></label>
         <label class="f">Paid by<select name="who">${PEOPLE.map(p=>`<option ${p===(e.who||S.who)?"selected":""}>${p}</option>`).join("")}</select></label>
@@ -932,6 +953,7 @@ function expenseForm(x, preset){
       ${delivered
         ? (tgt.item && x.qty ? `<p class="note">Delivered${x.deliveredAt ? " on " + esc(new Date(x.deliveredAt).toLocaleDateString("en-SG",{day:"numeric",month:"short"})) : ""}: ${esc(fmtQ(tgt.item, x.qty))} of ${esc(tgt.item.name)} went into stock. Editing here doesn't change stock again.</p>` : "")
         : `<div class="f" id="expStock">Product link (optional)
+            <div class="xl-row"><input type="search" id="expSrcQ" placeholder="Type to find a link…" aria-label="Find a product link" style="flex:1 1 160px"><span class="note" id="expSrcHint"></span></div>
             <select name="src" id="expSrc" aria-label="Product link or stock item">${srcOpts}</select>
             <div class="xl-row" id="expQtyRow" hidden><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="how much" aria-label="Quantity ordered" style="max-width:150px" value="${e.qty ?? ""}"><span class="u" id="expUnitLbl"></span></div><select name="unit" id="expUnit" style="width:auto" aria-label="Unit">${opt({pcs:"pcs",m:"metres (m)",cm:"cm"}, e.unit || "pcs")}</select></div>
             <label class="keep" id="expDelRow" hidden><input type="checkbox" name="delivered"> Already delivered (add to stock now)</label>
@@ -945,7 +967,7 @@ function expenseForm(x, preset){
       const net = Math.round((listIn - disc) * 100) / 100;
       let rate = 1;
       if (cur !== "SGD") { rate = numOrNull(fd.get("rate")); if (!rate) { try { rate = await getRate(cur, fd.get("date")); } catch(err) { throw {code:"fx"}; } } }
-      const data = {date:fd.get("date"), amount:Math.round(net*rate*100)/100, currency:cur, listPrice:listIn, discount:disc, discountFor:(fd.get("discountFor")||"").trim(),
+      const data = {date:fd.get("date"), amount:Math.round(net*rate*100)/100, currency:cur, listPrice:listIn, discount:disc, discountFor:(fd.get("discountFor")||"").trim(), finish:fd.get("finish")||"",
         origAmount:net, rate, desc:fd.get("desc").trim(), cat:fd.get("cat"),
         who:fd.get("who")||"", pay:fd.get("pay"), shop:fd.get("shop").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||""};
       if (!delivered) {
@@ -968,10 +990,10 @@ function expenseForm(x, preset){
       const curSel = form.querySelector("#expCur"), fxBox = form.querySelector("#fxBox"), rateIn = form.querySelector("#fxRate"),
             note = form.querySelector("#fxNote"), amtEl = form.querySelector("[name=amount]"), discEl = form.querySelector("[name=discount]"),
             dateEl = form.querySelector("[name=date]"), paidNote = form.querySelector("#paidNote");
-      const netVal = () => { const a = numOrNull(amtEl.value), d = numOrNull(discEl.value) || 0; return a == null ? null : Math.max(0, a - Math.min(d, a)); };
+      const netVal = () => { const a = numOrNull(amtEl.value), d = numOrNull(discEl?.value) || 0; return a == null ? null : Math.max(0, a - Math.min(d, a)); };
       const showFx = () => {
         const c = curSel.value; fxBox.hidden = c === "SGD"; form.querySelector("#fxCur").textContent = c;
-        const n = netVal(), r = numOrNull(rateIn.value), d = numOrNull(discEl.value) || 0;
+        const n = netVal(), r = numOrNull(rateIn.value), d = numOrNull(discEl?.value) || 0;
         paidNote.textContent = n == null ? "" : `You paid ${fmtCur(n, c)}${c !== "SGD" && r ? ` = ${money(n * r)}` : ""}${d ? ` after ${fmtCur(d, c)} off` : ""}.`;
         note.textContent = c === "SGD" ? "" : (rateIn.dataset.src || "");
       };
@@ -985,7 +1007,7 @@ function expenseForm(x, preset){
       };
       curSel.addEventListener("change", () => { delete rateIn.dataset.manual; fetchFx(); });
       dateEl.addEventListener("change", fetchFx);
-      amtEl.addEventListener("input", showFx); discEl.addEventListener("input", showFx);
+      amtEl.addEventListener("input", showFx); discEl?.addEventListener("input", showFx);
       rateIn.addEventListener("input", () => { rateIn.dataset.manual = "1"; rateIn.dataset.src = "Using your rate."; showFx(); });
       if (x && x.currency && x.currency !== "SGD") { rateIn.dataset.manual = "1"; rateIn.dataset.src = "Saved rate. Change it if needed."; }
       showFx();
@@ -1002,6 +1024,7 @@ function expenseForm(x, preset){
           const d = form.querySelector("[name=desc]"), sh = form.querySelector("[name=shop]");
           if (!d.value) d.value = link.title;
           if (!sh.value) sh.value = link.shop || host(link.url) || "";
+          const fin = form.querySelector("[name=finish]"); if (fin && !fin.value && link.finish) fin.value = link.finish;
           if (link.priceCur && link.priceCur !== "SGD" && curSel.value === "SGD" && !amtEl.value) { curSel.value = link.priceCur; delete rateIn.dataset.manual; fetchFx(); }
           const ph = form.querySelector("[name=photo]");
           if (link.photo && !ph.value) { ph.value = link.photo; form.querySelector(".thumb.big").innerHTML = `<img src="${esc(photoSrc(link.photo))}" alt="">`; const rm = form.querySelector("#phRemove"); if (rm) rm.hidden = false; }
@@ -1011,7 +1034,30 @@ function expenseForm(x, preset){
           : target ? `When delivered, this is added to the stock item “${target.name}” (now ${fmtQ(target, target.qty)}).`
           : `No stock item uses this link yet. When delivered, “${link.title}” is added to Stock as a new item.`;
       };
-      if (srcSel) { srcSel.addEventListener("change", onSrc); onSrc(true); }
+      if (srcSel) {
+        srcSel.addEventListener("change", onSrc); onSrc(true);
+        // Narrow the drop-down to links and stock items with similar names
+        const qEl = form.querySelector("#expSrcQ"), hint = form.querySelector("#expSrcHint"), descEl = form.querySelector("[name=desc]");
+        const all = [...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l => ({v:"link:"+l.id, g:"Wishlist / supplier links", t:l.title + (l.shop ? " — " + l.shop : "")}))
+          .concat([...S.items].sort((a,b)=>a.name.localeCompare(b.name)).map(i => ({v:"item:"+i.id, g:"Stock items", t:i.name})));
+        const words = t => norm(t).split(/[^a-z0-9]+/).filter(w => w.length > 1);
+        const score = (t, q) => { const ws = words(t); return q.reduce((a, k) => a + (ws.includes(k) ? 2 : ws.some(w => w.startsWith(k) || (k.startsWith(w) && w.length > 2)) ? 1 : 0), 0); };
+        const rebuild = text => {
+          const cur = srcSel.value, q = words(text);
+          let list = all, none = false;
+          if (q.length) {
+            const hits = all.map(o => ({...o, s: score(o.t, q)})).filter(o => o.s > 0 || o.v === cur).sort((a,b) => b.s - a.s);
+            if (hits.some(o => o.s > 0)) list = hits; else none = true;
+          }
+          const groups = {}; list.forEach(o => (groups[o.g] ||= []).push(o));
+          srcSel.innerHTML = `<option value="">Not a stock order</option>` + Object.entries(groups).map(([g, os]) =>
+            `<optgroup label="${esc(g)}">${os.map(o => `<option value="${o.v}" ${o.v === cur ? "selected" : ""}>${esc(o.t)}</option>`).join("")}</optgroup>`).join("");
+          const n = list.filter(o => o.s > 0).length;
+          hint.textContent = !q.length ? "" : none ? "No similar names, showing all" : `${n} similar`;
+        };
+        qEl.addEventListener("input", () => rebuild(qEl.value));
+        descEl.addEventListener("input", () => { if (!qEl.value && !srcSel.value) rebuild(descEl.value); });
+      }
       bindDelete(form, async () => { await S.db.collection("expenses").doc(x.id).delete(); toast("Expense deleted"); logAct(`deleted an expense: ${x.desc}, ${money(x.amount)}`); });
     });
 }
@@ -1106,9 +1152,9 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
   document.head.appendChild(s);
 });
 const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish"];
-const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish"];
-const EXP_COLS = ["ID","Date","Type","Item","Product link","Qty received","Unit","Delivered","Amount","Discount","Discount for","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes"];
-const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Payment","Customer / event","Materials used","Sold by"];
+const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish","Favourite"];
+const EXP_COLS = ["ID","Date","Type","Item","Product link","Qty received","Unit","Delivered","Amount","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes","Finish"];
+const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Discount (S$)","Discount for","Paid (S$)","Payment","Customer / event","Materials used","Sold by"];
 const HELP = [
   "momento.co stock book spreadsheet", "Co-owned by Jessica & Valerie", "",
   "HOW TO USE",
@@ -1119,17 +1165,17 @@ const HELP = [
   "ALLOWED VALUES",
   "Type: Chain, Jump ring, Charm, Other supply",
   "Metal: YG, SS, RG, Mixed (or blank)",
-  "Finish (Stock and Links): Solid, Gold filled or Gold plated (or blank).",
+  "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
   "Used for: PJ, Keychain, Both",
   "Unit: m, cm, pcs, inch, ft. Keep chains in m (metres).",
-  "Dead stock (Stock sheet): Yes for items that won't sell (no restock alerts). To write off damaged or lost pieces, use the item's edit screen in the app.",
+  "Dead stock (Stock sheet): Yes moves the item to the Archive (no restock alerts). To write off damaged or lost pieces, use the item's edit screen in the app.",
   "Supplier link: type the Product name exactly as it appears on the Links sheet.",
   "Expenses Type: Stock & supplies, One-time / equipment, Admin & fees, Packaging & marketing, Other",
   "Expenses Item: what you bought or paid for, in your own words (e.g. 5 m SS chain, welder).",
-  "Links Used for: PJ, Keychain or Both.",
+  "Links Used for: PJ, Keychain or Both. Favourite: Yes to star a link (favourites show first).",
   "Currency (Expenses and Links): SGD, USD, MYR, CNY, EUR, GBP, AUD, HKD, JPY, KRW, THB, IDR, PHP or INR. Blank means SGD.",
   "Expenses Product link: for a stock order, type the Product name from the Links sheet and fill Qty received and Unit. Set Delivered to Yes when it has arrived: that adds it to stock (a link with no stock item yet creates one). No means it's still on the way.",
-  "Expenses Amount is the price before discount. Put any Discount (same currency) and what it was for; Paid (S$) is worked out for you.",
+  "Expenses Amount is what you paid, in its Currency. Paid (S$) is worked out for you.",
   "Links Photo: paste the picture into the row (Insert > Pictures), or put an image link (https://...).",
   "Expenses in another currency: type the Amount in that currency and leave Amount (S$) blank. The app converts it using that date's exchange rate.",
   "Expenses Paid by: Jessica or Valerie. Date: any normal date, e.g. 3/10/2026 (day/month/year).",
@@ -1148,26 +1194,26 @@ async function buildWorkbook(){
     "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||"", "Dead stock": i.dead ? "Yes" : "", "Finish": i.finish ? FINISH[i.finish] : ""}));
   const links = [...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l => ({
     "ID":l.id, "Product name":l.title||"", "Link":l.url||"", "Shop":l.shop||"", "Metal":metalText(l.metal), "Used for":linesText(l.lines),
-    "Price":l.price ?? "", "Currency":l.priceCur || "SGD", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||"", "Photo":l.photo ? photoSrc(l.photo) : "", "Finish": l.finish ? FINISH[l.finish] : ""}));
+    "Price":l.price ?? "", "Currency":l.priceCur || "SGD", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||"", "Photo":l.photo ? photoSrc(l.photo) : "", "Finish": l.finish ? FINISH[l.finish] : "", "Favourite": l.fav ? "Yes" : ""}));
   const sales = [...S.sales].sort(bySaleDesc).map(s => ({
-    "Date":s.date||"", "Line":LINE[s.line]||"", "Product":s.product||"", "Details":s.desc||"", "Price (S$)":Number(s.price)||0,
+    "Date":s.date||"", "Line":LINE[s.line]||"", "Product":s.product||"", "Details":s.desc||"", "Price (S$)":s.listPrice ?? (Number(s.price)||0), "Discount (S$)":s.discount || "", "Discount for":s.discountFor || "", "Paid (S$)":Number(s.price)||0,
     "Payment":s.pay||"", "Customer / event":s.customer||"",
     "Materials used":(s.used||[]).map(u => { const it = itemById(u.itemId); return it ? fmtUse(it,u.qty)+" "+it.name : null; }).filter(Boolean).join(", "),
     "Sold by": s.who || (!s.by ? "" : s.by === S.me ? (S.myName || "") : nameOf(s.by))}));
   const add = (rows, cols, widths, name) => { const ws = X.utils.json_to_sheet(rows, {header:cols}); ws["!cols"] = widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb, ws, name); };
   add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30,10,12], "Stock");
-  add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30,40,12], "Links");
+  add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30,40,12,10], "Links");
   const exps = [...S.expenses].sort(bySaleDesc).map(x => {
     const {link, item} = stockTarget(x);
     return {"ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "Item":x.desc||"",
       "Product link": link?.title || (x.itemId && !x.linkId ? item?.name || "" : ""), "Qty received": x.qty ?? "", "Unit": x.qty ? (x.unit || item?.unit || "") : "",
       "Delivered": x.qty && (x.linkId || x.itemId) ? (isDelivered(x) ? "Yes" : "No") : "",
-      "Amount": x.listPrice ?? x.origAmount ?? (Number(x.amount)||0), "Discount": x.discount || "", "Discount for": x.discountFor || "",
+      "Amount": x.listPrice ?? x.origAmount ?? (Number(x.amount)||0), 
       "Currency": x.currency || "SGD", "Paid (S$)": Number(x.amount)||0,
-      "Paid by":x.who||"", "Payment":x.pay||"", "Shop / supplier":x.shop||"", "Notes":x.notes||""};
+      "Paid by":x.who||"", "Payment":x.pay||"", "Shop / supplier":x.shop||"", "Notes":x.notes||"", "Finish": x.finish ? FINISH[x.finish] : ""};
   });
-  add(exps, EXP_COLS, [22,11,22,36,32,11,6,10,11,10,20,9,12,10,10,20,30], "Expenses");
-  add(sales, SALES_COLS, [11,20,16,36,10,10,18,42,14], "Sales");
+  add(exps, EXP_COLS, [22,11,22,36,32,11,6,10,11,9,12,10,10,20,30,12], "Expenses");
+  add(sales, SALES_COLS, [11,20,16,36,10,12,20,10,10,18,42,14], "Sales");
   if (S.deadstock.length) add([...S.deadstock].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(x => ({"Date":x.date||"", "Item":x.name||"", "Qty":x.qty, "Unit":x.unit||"",
     "Reason":WRITE_OFF[x.reason]||"", "Value at cost (S$)":x.value ?? "", "By":x.who||""})), ["Date","Item","Qty","Unit","Reason","Value at cost (S$)","By"], [11,36,8,6,14,16,10], "Dead stock");
   const help = X.utils.aoa_to_sheet(HELP.map(l=>[l])); help["!cols"] = [{wch:110}];
@@ -1327,7 +1373,7 @@ async function planImport(file){
     }
     const data = {date, amount: sgd, currency: cur, listPrice: list, discount: disc, discountFor: txt(pick(r,"discount for")), origAmount: net, rate,
       desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who,
-      pay: txt(pick(r,"payment")), shop: txt(pick(r,"shop / supplier","shop","supplier")), notes: txt(pick(r,"notes"))};
+      pay: txt(pick(r,"payment")), shop: txt(pick(r,"shop / supplier","shop","supplier")), notes: txt(pick(r,"notes")), finish: mapFinish(pick(r,"finish"))};
     const linkIn = txt(pick(r,"product link")), qtyIn = numCell(pick(r,"qty received","qty","quantity")), unitIn = txt(pick(r,"unit"));
     const delIn = norm(pick(r,"delivered")), saysYes = /^(y|yes|true|1|delivered|done)$/.test(delIn);
     if (!(ex && isDelivered(ex))) {
@@ -1356,7 +1402,7 @@ async function planImport(file){
     if (idIn && !ex) plan.warnings.push(`Links row ${i+2}: ID “${idIn}” isn't in the app, so it was added as new.`);
     const url = txt(pick(r,"link","url"));
     if (url && !safeUrl(url)) plan.warnings.push(`Links row ${i+2}: the link should start with https://`);
-    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), finish:mapFinish(pick(r,"finish")), lines:mapLines(pick(r,"used for"), ex?.lines || []), price:numCell(pick(r,"price")), priceCur:curCode(pick(r,"currency")) || "SGD",
+    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), finish:mapFinish(pick(r,"finish")), fav: /^(y|yes|true|1|★|fav|favourite|favorite)$/.test(norm(pick(r,"favourite","favorite"))), lines:mapLines(pick(r,"used for"), ex?.lines || []), price:numCell(pick(r,"price")), priceCur:curCode(pick(r,"currency")) || "SGD",
       pack:txt(pick(r,"pack size","pack")), specs:txt(pick(r,"specifications","specs")), notes:txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("links").doc().id;
     byTitle.set(norm(title), id);
@@ -1467,6 +1513,18 @@ document.addEventListener("click", async ev => {
     case "excel": excelSheet(); break;
     case "lengths": lengthsForm(); break;
     case "newExp": expenseForm(); break;
+    case "unarchive": {
+      const it = itemById(id); if (!it) break;
+      try { await S.db.collection("items").doc(id).update({dead:false, ...stamp()}); toast(`${it.name} is back in stock`); logAct(`restored ${it.name} from the archive`); }
+      catch(err) { toast(writeError(err)); }
+      break;
+    }
+    case "favLink": {
+      const l = linkById(id); if (!l) break;
+      try { await S.db.collection("links").doc(id).update({fav: !l.fav}); logAct(`${l.fav ? "removed" : "added"} ${l.title} ${l.fav ? "from" : "to"} favourites`); }
+      catch(err) { toast(writeError(err)); }
+      break;
+    }
     case "buyLink": expenseForm(null, {src: "link:" + id}); break;
     case "deliver": {
       t.disabled = true;
