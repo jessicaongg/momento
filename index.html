@@ -418,7 +418,7 @@ function itemRow(it, withQty=true){
   return `<div class="row${shade}">
     ${thumb(it.photo, it.metal, it.name)}
     <div class="main clickable" data-a="editItem" data-id="${it.id}" role="button" tabindex="0">
-      <div class="title">${esc(it.name)} ${lines} ${fin} ${pill}</div>
+      <div class="title">${esc(it.name)} ${lines} ${fin} ${it.connector ? `<span class="pill fin">Connector</span>` : ""} ${pill}</div>
       <div class="sub">${sub}${isM(it)&&it.qty!=null?` · ${Math.round(it.qty*100)} cm left`:""}${it.lowAt!=null?` · restock at ${esc(it.lowAt)} ${esc(it.unit||"")}`:""}</div>
     </div>
     ${it.dead && S.canWrite ? `<button type="button" class="btn small" data-a="unarchive" data-id="${it.id}">Restore</button>` : withQty ? `<div class="qty">
@@ -485,7 +485,7 @@ function chipset(group, opts, cur){
 function vStock(){
   const f = S.f;
   let items = S.items.filter(i =>
-    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || i.cat===f.cat)) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) &&
+    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || (f.cat==="connector" ? i.cat==="charm" && !!i.connector : i.cat===f.cat))) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) &&
     (f.line==="all"||(i.lines||[]).includes(f.line)) &&
     (!f.q || (i.name+" "+(i.style||"")+" "+(i.notes||"")).toLowerCase().includes(f.q.toLowerCase())));
   const order = {chain:0,jumpring:1,charm:2,findings:3,other:4};
@@ -494,7 +494,7 @@ function vStock(){
     <div class="sec-head"><h2>Stock</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${S.canWrite?`<button class="btn" data-a="lengths">Chain lengths</button>`:""}<button class="btn" data-a="excel">Excel</button>${addBtn("newItem","Add item")}</div></div>
     <div class="filters">
       <input id="q" type="search" placeholder="Search stock (e.g. birthstone, double-sided)" value="${esc(f.q)}" aria-label="Search stock">
-      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["findings","Findings"],["other","Other"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
+      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["findings","Findings"],["other","Other"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["YG","YG","YG"],["SS","SS","SS"],["RG","RG","RG"]],f.metal)}
       ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],f.finish||"all")}
       ${chipset("line",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],f.line)}
@@ -541,7 +541,8 @@ function vSales(){
 
 function guessCat(t){ t = (t||"").toLowerCase(); return /jump ?ring/.test(t) ? "jumpring" : /chain/.test(t) ? "chain" : /charm|pendant|birthstone/.test(t) ? "charm" : /finding|clasp|lobster|connector|bail|ear ?wire|earring hook|crimp|end cap|spring ring|toggle|key ?ring|split ring/.test(t) ? "findings" : "other"; }
 function newItemFromLink(link, qty, unit, sgd){
-  return {name: link.title, cat: guessCat(link.title), metal: link.metal || "", finish: link.finish || "", style: "", lines: (link.lines && link.lines.length) ? link.lines : ["pj"],
+  return {name: link.title, cat: link.connector ? "charm" : guessCat(link.title), metal: link.metal || "", finish: link.finish || "",
+    connector: !!link.connector || (/connector/i.test(link.title || "") && guessCat(link.title) === "charm"), style: "", lines: (link.lines && link.lines.length) ? link.lines : ["pj"],
     qty, unit: unit || "pcs", lowAt: null, cost: qty && sgd ? Math.round(sgd / qty * 100) / 100 : null, linkId: link.id, notes: "", photo: link.photo || "", ...stamp()};
 }
 // "link:<id>" or "item:<id>" → the supplier link and the stock item it feeds (if any)
@@ -726,7 +727,7 @@ function vLinks(){
     return `<div class="row" style="align-items:flex-start">
       ${thumb(l.photo, l.metal, l.title)}
       <div class="main">
-        <div class="title"><button type="button" class="fav" data-a="favLink" data-id="${l.id}" aria-pressed="${!!l.fav}" aria-label="${l.fav ? "Remove from" : "Add to"} favourites" ${S.canWrite ? "" : "disabled"}>${l.fav ? "★" : "☆"}</button>${esc(l.title)} ${(l.lines||[]).map(x=>`<span class="pill ${x}">${LINE_SHORT[x]}</span>`).join("")}${l.finish ? ` <span class="pill fin">${esc(FINISH[l.finish])}</span>` : ""}${S.expenses.some(e => isPending(e) && e.linkId === l.id) ? ` <span class="pill low">On the way</span>` : ""}</div>
+        <div class="title"><button type="button" class="fav" data-a="favLink" data-id="${l.id}" aria-pressed="${!!l.fav}" aria-label="${l.fav ? "Remove from" : "Add to"} favourites" ${S.canWrite ? "" : "disabled"}>${l.fav ? "★" : "☆"}</button>${esc(l.title)} ${(l.lines||[]).map(x=>`<span class="pill ${x}">${LINE_SHORT[x]}</span>`).join("")}${l.finish ? ` <span class="pill fin">${esc(FINISH[l.finish])}</span>` : ""}${l.connector ? ` <span class="pill fin">Connector</span>` : ""}${S.expenses.some(e => isPending(e) && e.linkId === l.id) ? ` <span class="pill low">On the way</span>` : ""}</div>
         <div class="sub">${meta}</div>
         ${u?`<div class="sub"><a class="ext" href="${esc(u)}" target="_blank" rel="noopener">${esc(host(u)||u)}</a></div>`:""}
         ${l.specs?`<div class="specs">${esc(l.specs)}</div>`:""}
@@ -833,6 +834,7 @@ function itemForm(it){
         <label class="f">Metal<select name="metal">${opt(METAL,e.metal)}</select></label>
       </div>
       <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
+      <label class="keep connRow"><input type="checkbox" name="connector" ${e.connector?"checked":""}> Connector charm (joins two ends of a chain)</label>
       <label class="f">Style / details<input name="style" value="${esc(e.style)}" placeholder="e.g. double-sided, birthstone, paperclip chain, 4mm"></label>
       <div class="f" style="font-size:.8rem;font-weight:600;color:var(--muted)">Used for
         <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label><label><input type="checkbox" name="un" ${(e.lines||[]).includes("un")?"checked":""}> Unsure</label></div>
@@ -858,7 +860,7 @@ function itemForm(it){
       <div class="actions">${delBtn(!!it)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const lines = ["pj","kc","un"].filter(k=>fd.get(k));
-      const data = {name:fd.get("name").trim(), cat:fd.get("cat"), metal:fd.get("metal"), finish:fd.get("finish")||"", style:fd.get("style").trim(), lines,
+      const data = {name:fd.get("name").trim(), cat:fd.get("cat"), metal:fd.get("metal"), finish:fd.get("finish")||"", connector: fd.get("cat") === "charm" && !!fd.get("connector"), style:fd.get("style").trim(), lines,
         qty:numOrNull(fd.get("qty")), unit:fd.get("unit"), lowAt:numOrNull(fd.get("lowAt")), cost:numOrNull(fd.get("cost")),
         linkId:fd.get("linkId")||"", notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
       data.dead = !!fd.get("dead");
@@ -874,7 +876,11 @@ function itemForm(it){
       }
       if (it && !!it.dead !== data.dead) logAct(`${data.dead ? "moved" : "restored"} ${data.name} ${data.dead ? "to" : "from"} the archive`);
       logAct(it ? (it.qty !== data.qty ? `edited ${data.name}: ${fmtQ(data,it.qty)} → ${fmtQ(data,data.qty)}` : `edited ${data.name}`) : `added stock item ${data.name}`);
-    }, form => { bindPhoto(form); fillFromLink(form, it);
+    }, form => { bindPhoto(form);
+      const catSel = form.querySelector("[name=cat]"), connRow = form.querySelector(".connRow");
+      form._connToggle = () => { if (connRow) connRow.hidden = catSel.value !== "charm"; };
+      catSel.addEventListener("change", form._connToggle); form._connToggle();
+      fillFromLink(form, it);
       attachSearch({sel: form.querySelector("[name=linkId]"), q: form.querySelector(".linkQ"), hint: form.querySelector(".linkHint"), also: form.querySelector("[name=name]"), list: linkChoices(), empty: "None"});
       bindDelete(form, async () => { await S.db.collection("items").doc(it.id).delete(); toast("Item deleted"); logAct(`deleted stock item ${it.name}`); }); });
 }
@@ -1149,6 +1155,9 @@ function fillFromLink(form, it){
       if (set("cat", cat)) filled.push("type");
       if (set("metal", l.metal)) filled.push("metal");
       if (set("finish", l.finish)) filled.push("finish");
+      const isConn = !!l.connector || (/connector/i.test(l.title || "") && cat === "charm");
+      if (isConn && el("connector") && !el("connector").dataset.touched) { el("connector").checked = true; if (!el("cat").dataset.touched) el("cat").value = "charm"; filled.push("connector"); }
+      form._connToggle && form._connToggle();
       if (set("unit", cat === "chain" ? "m" : "pcs")) filled.push("unit");
       if (l.lines && l.lines.length && !["pj","kc","un"].some(k => el(k)?.dataset.touched)) { ["pj","kc","un"].forEach(k => { if (el(k)) el(k).checked = l.lines.includes(k); }); filled.push("used for"); }
     } else if (!it.finish && set("finish", l.finish, true)) filled.push("finish");
@@ -1231,6 +1240,7 @@ function linkForm(l){
         <label class="f">Metal<select name="metal">${opt(METAL,e.metal)}</select></label>
       </div>
       <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
+      <label class="keep"><input type="checkbox" name="connector" ${e.connector?"checked":""}> Connector charm (joins two ends of a chain)</label>
       <div class="f">Used for
         <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label><label><input type="checkbox" name="un" ${(e.lines||[]).includes("un")?"checked":""}> Unsure</label></div>
       </div>
@@ -1245,7 +1255,7 @@ function linkForm(l){
       <div class="actions">${delBtn(!!l)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const url = fd.get("url").trim();
-      const data = {title:fd.get("title").trim(), url, lines:["pj","kc","un"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), finish:fd.get("finish")||"", price:numOrNull(fd.get("price")), priceCur:fd.get("priceCur")||"SGD",
+      const data = {title:fd.get("title").trim(), url, connector: !!fd.get("connector"), lines:["pj","kc","un"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), finish:fd.get("finish")||"", price:numOrNull(fd.get("price")), priceCur:fd.get("priceCur")||"SGD",
         pack:fd.get("pack").trim(), specs:fd.get("specs").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
       const ref = l ? S.db.collection("links").doc(l.id) : S.db.collection("links").doc();
       if (!l) data.createdAt = Date.now();
@@ -1296,8 +1306,8 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
   s.onerror = () => { xlsxP = null; rej(new Error("load")); };
   document.head.appendChild(s);
 });
-const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish"];
-const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish","Favourite"];
+const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish","Connector"];
+const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish","Favourite","Connector"];
 const EXP_COLS = ["ID","Date","Type","Item","Product link","Qty received","Unit","Delivered","Amount","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes","Finish"];
 const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Discount (S$)","Discount for","Paid (S$)","Payment","Customer / event","Materials used","Sold by"];
 const HELP = [
@@ -1311,6 +1321,7 @@ const HELP = [
   "Type: Chain, Jump ring, Charm, Findings (clasps, connectors, ear wires...), Other supply",
   "Metal: YG, SS, RG, Mixed (or blank)",
   "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
+  "Connector (Stock and Links): Yes for connector charms that join two ends of a chain.",
   "Used for: PJ, Keychain, Both or Unsure",
   "Unit: m, cm, pcs, inch, ft. Keep chains in m (metres).",
   "Dead stock (Stock sheet): Yes moves the item to the Archive (no restock alerts). To write off damaged or lost pieces, use the item's edit screen in the app.",
@@ -1337,18 +1348,18 @@ async function buildWorkbook(){
   const stock = [...S.items].sort((a,b)=>(order[a.cat]-order[b.cat]) || a.name.localeCompare(b.name)).map(i => ({
     "ID":i.id, "Name":i.name, "Type":CAT[i.cat]||"", "Metal":metalText(i.metal), "Style / details":i.style||"", "Used for":linesText(i.lines),
     "In stock":i.qty ?? "", "Unit":i.unit||"", "Restock at":i.lowAt ?? "", "Cost per unit (S$)":i.cost ?? "",
-    "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||"", "Dead stock": i.dead ? "Yes" : "", "Finish": i.finish ? FINISH[i.finish] : ""}));
+    "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||"", "Dead stock": i.dead ? "Yes" : "", "Finish": i.finish ? FINISH[i.finish] : "", "Connector": i.connector ? "Yes" : ""}));
   const links = [...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l => ({
     "ID":l.id, "Product name":l.title||"", "Link":l.url||"", "Shop":l.shop||"", "Metal":metalText(l.metal), "Used for":linesText(l.lines),
-    "Price":l.price ?? "", "Currency":l.priceCur || "SGD", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||"", "Photo":l.photo ? photoSrc(l.photo) : "", "Finish": l.finish ? FINISH[l.finish] : "", "Favourite": l.fav ? "Yes" : ""}));
+    "Price":l.price ?? "", "Currency":l.priceCur || "SGD", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||"", "Photo":l.photo ? photoSrc(l.photo) : "", "Finish": l.finish ? FINISH[l.finish] : "", "Favourite": l.fav ? "Yes" : "", "Connector": l.connector ? "Yes" : ""}));
   const sales = [...S.sales].sort(bySaleDesc).map(s => ({
     "Date":s.date||"", "Line":LINE[s.line]||"", "Product":s.product||"", "Details":s.desc||"", "Price (S$)":s.listPrice ?? (Number(s.price)||0), "Discount (S$)":s.discount || "", "Discount for":s.discountFor || "", "Paid (S$)":Number(s.price)||0,
     "Payment":s.pay||"", "Customer / event":s.customer||"",
     "Materials used":(s.used||[]).map(u => { const it = itemById(u.itemId); return it ? fmtUse(it,u.qty)+" "+it.name : null; }).filter(Boolean).join(", "),
     "Sold by": s.who || (!s.by ? "" : s.by === S.me ? (S.myName || "") : nameOf(s.by))}));
   const add = (rows, cols, widths, name) => { const ws = X.utils.json_to_sheet(rows, {header:cols}); ws["!cols"] = widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb, ws, name); };
-  add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30,10,12], "Stock");
-  add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30,40,12,10], "Links");
+  add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30,10,12,11], "Stock");
+  add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30,40,12,10,11], "Links");
   const exps = [...S.expenses].sort(bySaleDesc).map(x => {
     const {link, item} = stockTarget(x);
     return {"ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "Item":x.desc||"",
@@ -1549,7 +1560,8 @@ async function planImport(file){
     if (idIn && !ex) plan.warnings.push(`Links row ${i+2}: ID “${idIn}” isn't in the app, so it was added as new.`);
     const url = txt(pick(r,"link","url"));
     if (url && !safeUrl(url)) plan.warnings.push(`Links row ${i+2}: the link should start with https://`);
-    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), finish:mapFinish(pick(r,"finish")), fav: /^(y|yes|true|1|★|fav|favourite|favorite)$/.test(norm(pick(r,"favourite","favorite"))), lines:mapLines(pick(r,"used for"), ex?.lines || []), price:numCell(pick(r,"price")), priceCur:curCode(pick(r,"currency")) || "SGD",
+    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), finish:mapFinish(pick(r,"finish")),
+      connector: /^(y|yes|true|1|connector)$/.test(norm(pick(r,"connector"))), fav: /^(y|yes|true|1|★|fav|favourite|favorite)$/.test(norm(pick(r,"favourite","favorite"))), lines:mapLines(pick(r,"used for"), ex?.lines || []), price:numCell(pick(r,"price")), priceCur:curCode(pick(r,"currency")) || "SGD",
       pack:txt(pick(r,"pack size","pack")), specs:txt(pick(r,"specifications","specs")), notes:txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("links").doc().id;
     byTitle.set(norm(title), id);
@@ -1578,7 +1590,9 @@ async function planImport(file){
       style:txt(pick(r,"style / details","style","details")), lines:mapLines(pick(r,"used for"), ex?.lines),
       qty:numCell(pick(r,"in stock","qty","quantity")), unit:mapUnit(pick(r,"unit"), ex?.unit), lowAt:numCell(pick(r,"restock at")),
       cost:numCell(pick(r,"cost per unit","cost")), linkId, notes:txt(pick(r,"notes")),
-      dead: /^(y|yes|true|1|dead)$/.test(norm(pick(r,"dead stock"))), finish: mapFinish(pick(r,"finish"))};
+      dead: /^(y|yes|true|1|dead)$/.test(norm(pick(r,"dead stock"))), finish: mapFinish(pick(r,"finish")),
+      connector: /^(y|yes|true|1|connector)$/.test(norm(pick(r,"connector")))};
+    if (data.connector && data.cat !== "charm") data.connector = false;
     const id = ex ? ex.id : S.db.collection("items").doc().id;
     itemNames.set(norm(name), id);
     if (ex) { if (same(ex, data)) plan.c.ss++; else { plan.c.sc++; plan.writes.push({col:"items", id, data, isNew:false}); } }
