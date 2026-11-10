@@ -590,7 +590,8 @@ function expRow(x){
   const pend = isPending(x);
   const sub = [fmtDate(x.date), EXP_CAT[x.cat], x.karat ? KARAT[x.karat] : "", x.finish ? FINISH[x.finish] : "", x.who ? "paid by "+x.who : "", x.pay, x.shop].filter(Boolean).map(esc).join(" · ");
   const stockLine = isDelivered(x) && item && x.qty ? `Added to stock: ${fmtQ(item, x.qty)} of ${item.name}`
-    : pend ? `On the way: ${x.qty} ${x.unit || item?.unit || ""} of ${item?.name || link?.title || "stock"}` : "";
+    : pend ? `On the way: ${x.qty} ${x.unit || item?.unit || ""} of ${item?.name || link?.title || "stock"}`
+    : x.qty ? `Quantity: ${x.qty} ${x.unit || ""}`.trim() : "";
   const disc = Number(x.discount) > 0 ? `Saved ${fmtCur(x.discount, x.currency)}${x.discountFor ? " (" + x.discountFor + ")" : ""}` : "";
   return `<div class="row clickable" data-a="editExp" data-id="${x.id}" role="button" tabindex="0">
     ${x.photo ? thumb(x.photo, "", "receipt") : ""}
@@ -1027,12 +1028,14 @@ function expenseForm(x, preset){
         <label class="f">Payment<select name="pay">${PAY.map(p=>`<option ${p===e.pay?"selected":""}>${p}</option>`).join("")}</select></label>
         <label class="f">Shop / supplier<input name="shop" value="${esc(e.shop)}" placeholder="optional"></label>
       </div>
+      <div class="f">Quantity
+        <div class="xl-row" id="expQtyRow"><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="e.g. 10" aria-label="Quantity" style="max-width:150px" value="${e.qty ?? ""}" ${delivered ? "disabled" : ""}><span class="u" id="expUnitLbl"></span></div><select name="unit" id="expUnit" style="width:auto" aria-label="Unit" ${delivered ? "disabled" : ""}>${opt({pcs:"pcs",m:"metres (m)",cm:"cm",set:"sets",pack:"packs"}, e.unit || "pcs")}</select></div>
+      </div>
       ${delivered
         ? (tgt.item && x.qty ? `<p class="note">Delivered${x.deliveredAt ? " on " + esc(new Date(x.deliveredAt).toLocaleDateString("en-SG",{day:"numeric",month:"short"})) : ""}: ${esc(fmtQ(tgt.item, x.qty))} of ${esc(tgt.item.name)} went into stock. Editing here doesn't change stock again.</p>` : "")
         : `<div class="f" id="expStock">Product link (optional)
             <div class="xl-row"><input type="search" id="expSrcQ" placeholder="Type to find a link…" aria-label="Find a product link" style="flex:1 1 160px"><span class="note" id="expSrcHint"></span></div>
             <select name="src" id="expSrc" aria-label="Product link or stock item">${srcOpts}</select>
-            <div class="xl-row" id="expQtyRow" hidden><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="how much" aria-label="Quantity ordered" style="max-width:150px" value="${e.qty ?? ""}"><span class="u" id="expUnitLbl"></span></div><select name="unit" id="expUnit" style="width:auto" aria-label="Unit">${opt({pcs:"pcs",m:"metres (m)",cm:"cm"}, e.unit || "pcs")}</select></div>
             <label class="keep" id="expDelRow" hidden><input type="checkbox" name="delivered"> Already delivered (add to stock now)</label>
             <span style="font-weight:400" id="expSrcNote"></span></div>`}
       ${photoField(e.photo)}
@@ -1050,7 +1053,7 @@ function expenseForm(x, preset){
       if (!delivered) {
         const {link, item} = resolveSrc(fd.get("src") || "");
         const qty = numOrNull(fd.get("qty"));
-        Object.assign(data, {linkId: link ? link.id : "", itemId: item && !link ? item.id : "", qty: (link || item) && qty ? qty : null,
+        Object.assign(data, {linkId: link ? link.id : "", itemId: item && !link ? item.id : "", qty: qty || null,
           unit: item ? (item.unit || "pcs") : (fd.get("unit") || "pcs"), delivered: false});
         if (link && !data.photo && link.photo) data.photo = link.photo;
       }
@@ -1059,7 +1062,7 @@ function expenseForm(x, preset){
       else { const r = S.db.collection("expenses").doc(); id = r.id; await r.set({...data, by:S.me, createdAt:Date.now()}); }
       let res = null;
       if (!delivered && fd.get("delivered") && data.qty) res = await deliver(id);
-      toast(res ? (res.made ? "Saved and added to Stock as a new item" : "Saved and added to stock") : data.qty && !delivered ? "Saved. Mark it delivered when it arrives" : x ? "Expense updated" : "Expense saved");
+      toast(res ? (res.made ? "Saved and added to Stock as a new item" : "Saved and added to stock") : data.qty && (data.linkId || data.itemId) && !delivered ? "Saved. Mark it delivered when it arrives" : x ? "Expense updated" : "Expense saved");
       logAct(`${x ? "edited" : "added"} an expense: ${data.desc}, ${money(data.amount)}${disc ? ` (${fmtCur(disc, cur)} off)` : ""}${data.who && data.who !== S.who ? " (paid by "+data.who+")" : ""}`);
     }, form => {
       bindPhoto(form);
@@ -1093,7 +1096,7 @@ function expenseForm(x, preset){
         const {link, item} = resolveSrc(srcSel.value);
         const row = form.querySelector("#expQtyRow"), unitSel = form.querySelector("#expUnit"), lbl = form.querySelector("#expUnitLbl"),
               nt = form.querySelector("#expSrcNote"), delRow = form.querySelector("#expDelRow");
-        row.hidden = !(link || item); delRow.hidden = row.hidden;
+        delRow.hidden = !(link || item);
         unitSel.hidden = !!item; lbl.textContent = item ? (item.unit || "pcs") : "";
         if (!unitSel.hidden && link && !(first === true && x && x.unit)) unitSel.value = guessCat(link.title) === "chain" ? "m" : "pcs";
         if (link) {
@@ -1373,7 +1376,7 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
 });
 const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish","Connector","Karat"];
 const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish","Favourite","Connector","Karat"];
-const EXP_COLS = ["ID","Date","Type","Item","Product link","Qty received","Unit","Delivered","Amount","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes","Finish","Karat"];
+const EXP_COLS = ["ID","Date","Type","Item","Product link","Quantity","Unit","Delivered","Amount","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes","Finish","Karat"];
 const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Discount (S$)","Discount for","Paid (S$)","Payment","Customer / event","Materials used","Sold by"];
 const HELP = [
   "momento.co stock book spreadsheet", "Co-owned by Jessica & Valerie", "",
@@ -1396,7 +1399,7 @@ const HELP = [
   "Expenses Item: what you bought or paid for, in your own words (e.g. 5 m SS chain, welder).",
   "Links Used for: PJ, Keychain or Both. Favourite: Yes to star a link (favourites show first).",
   "Currency (Expenses and Links): SGD, USD, MYR, CNY, EUR, GBP, AUD, HKD, JPY, KRW, THB, IDR, PHP or INR. Blank means SGD.",
-  "Expenses Product link: for a stock order, type the Product name from the Links sheet and fill Qty received and Unit. Set Delivered to Yes when it has arrived: that adds it to stock (a link with no stock item yet creates one). No means it's still on the way.",
+  "Expenses Product link: for a stock order, type the Product name from the Links sheet and fill Quantity and Unit. Set Delivered to Yes when it has arrived: that adds it to stock (a link with no stock item yet creates one). No means it's still on the way.",
   "Expenses Amount is what you paid, in its Currency. Paid (S$) is worked out for you.",
   "Links Photo: paste the picture into the row (Insert > Pictures), or put an image link (https://...).",
   "Expenses in another currency: type the Amount in that currency and leave Amount (S$) blank. The app converts it using that date's exchange rate.",
@@ -1429,7 +1432,7 @@ async function buildWorkbook(){
   const exps = [...S.expenses].sort(bySaleDesc).map(x => {
     const {link, item} = stockTarget(x);
     return {"ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "Item":x.desc||"",
-      "Product link": link?.title || (x.itemId && !x.linkId ? item?.name || "" : ""), "Qty received": x.qty ?? "", "Unit": x.qty ? (x.unit || item?.unit || "") : "",
+      "Product link": link?.title || (x.itemId && !x.linkId ? item?.name || "" : ""), "Quantity": x.qty ?? "", "Unit": x.qty ? (x.unit || item?.unit || "") : "",
       "Delivered": x.qty && (x.linkId || x.itemId) ? (isDelivered(x) ? "Yes" : "No") : "",
       "Amount": x.listPrice ?? x.origAmount ?? (Number(x.amount)||0), 
       "Currency": x.currency || "SGD", "Paid (S$)": Number(x.amount)||0,
@@ -1598,7 +1601,7 @@ async function planImport(file){
     const data = {date, amount: sgd, currency: cur, listPrice: list, discount: disc, discountFor: txt(pick(r,"discount for")), origAmount: net, rate,
       desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who,
       pay: txt(pick(r,"payment")), shop: txt(pick(r,"shop / supplier","shop","supplier")), notes: txt(pick(r,"notes")), finish: mapFinish(pick(r,"finish")), karat: mapKarat(pick(r,"karat","carat","ct"))};
-    const linkIn = txt(pick(r,"product link")), qtyIn = numCell(pick(r,"qty received","qty","quantity")), unitIn = txt(pick(r,"unit"));
+    const linkIn = txt(pick(r,"product link")), qtyIn = numCell(pick(r,"quantity","qty received","qty")), unitIn = txt(pick(r,"unit"));
     const delIn = norm(pick(r,"delivered")), saysYes = /^(y|yes|true|1|delivered|done)$/.test(delIn);
     if (!(ex && isDelivered(ex))) {
       let linkId = ex?.linkId || "", itemId = ex?.itemId || "";
@@ -1607,11 +1610,11 @@ async function planImport(file){
         if (lid) { linkId = lid; itemId = ""; } else if (iid) { itemId = iid; linkId = ""; }
         else plan.warnings.push(`Expenses row ${i+2}: product link “${linkIn}” doesn't match a Product name on the Links sheet, so it isn't linked to stock.`);
       } else { linkId = ""; itemId = ""; }
-      Object.assign(data, {linkId, itemId, qty: (linkId || itemId) ? (qtyIn ?? null) : null,
+      Object.assign(data, {linkId, itemId, qty: qtyIn ?? null,
         unit: unitIn ? mapUnit(unitIn, "pcs") : (ex?.unit || itemById(itemId)?.unit || "pcs"), delivered: false});
       if (saysYes) {
         if ((linkId || itemId) && data.qty) plan.stockAdds.push({expId: id, name: linkIn, qty: data.qty, unit: data.unit});
-        else if (linkIn || qtyIn) plan.warnings.push(`Expenses row ${i+2}: needs both a Product link and Qty received to go into stock.`);
+        else if (linkIn || qtyIn) plan.warnings.push(`Expenses row ${i+2}: needs both a Product link and a Quantity to go into stock.`);
       }
     } else if (delIn && !saysYes) plan.warnings.push(`Expenses row ${i+2}: already delivered and in stock, so Delivered can't be changed back here.`);
     if (ex) { if (same(ex, data)) plan.c.es++; else { plan.c.ec++; plan.writes.push({col:"expenses", id, data, isNew:false}); } }
