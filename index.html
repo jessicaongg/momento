@@ -478,7 +478,7 @@ function expRow(x){
   return `<div class="row clickable" data-a="editExp" data-id="${x.id}" role="button" tabindex="0">
     ${x.photo ? thumb(x.photo, "", "receipt") : ""}
     <div class="main"><div class="title">${esc(x.desc || EXP_CAT[x.cat] || "Expense")}</div><div class="sub">${sub}</div>
-      ${it && x.qty ? `<div class="sub">Added to stock: ${esc(fmtQ(it,x.qty))} ${esc(it.name)}</div>` : ""}</div>
+      ${it ? `<div class="sub">${x.qty ? `Added to stock: ${esc(fmtQ(it,x.qty))} of ` : "Item: "}${esc(it.name)}</div>` : ""}</div>
     <div class="end"><span class="money">${money(x.amount)}</span></div>
   </div>`;
 }
@@ -551,7 +551,8 @@ function vRestock(){
 
 function vLinks(){
   const q = (S.lq||"").toLowerCase();
-  const list = S.links.filter(l => !q || [l.title,l.shop,l.specs,l.notes,l.url].join(" ").toLowerCase().includes(q))
+  const lf = S.f.lline || "all";
+  const list = S.links.filter(l => (!q || [l.title,l.shop,l.specs,l.notes,l.url].join(" ").toLowerCase().includes(q)) && (lf === "all" || (l.lines||[]).includes(lf)))
     .sort((a,b)=>(a.title||"").localeCompare(b.title||""));
   const rows = list.map(l => {
     const u = safeUrl(l.url); const its = S.items.filter(i=>i.linkId===l.id);
@@ -559,7 +560,7 @@ function vLinks(){
     return `<div class="row" style="align-items:flex-start">
       ${thumb(l.photo, l.metal, l.title)}
       <div class="main">
-        <div class="title">${esc(l.title)}</div>
+        <div class="title">${esc(l.title)} ${(l.lines||[]).map(x=>`<span class="pill ${x}">${LINE_SHORT[x]}</span>`).join("")}</div>
         <div class="sub">${meta}</div>
         ${u?`<div class="sub"><a class="ext" href="${esc(u)}" target="_blank" rel="noopener">${esc(host(u)||u)}</a></div>`:""}
         ${l.specs?`<div class="specs">${esc(l.specs)}</div>`:""}
@@ -575,6 +576,7 @@ function vLinks(){
   return `<section>
     <div class="sec-head"><h2>Supplier links</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newLink","Add link")}</div></div>
     <input id="lq" type="search" placeholder="Search links, shops or specs" value="${esc(S.lq||"")}" aria-label="Search links">
+    ${chipset("lline",[["all","Both lines"],["pj","Permanent jewellery"],["kc","Keychain"]],lf)}
     <p class="note">Save where you buy each supply and its exact specs (metal, gauge, chain style, length, pack size), so either of you can reorder the same thing.</p>
     <div class="list">${loading("links") || (list.length ? rows : `<div class="empty">${S.links.length?"No links match.":"No links yet. Add the shop listing for a chain or charm with “Add link”."}</div>`)}</div>
   </section>`;
@@ -776,7 +778,7 @@ async function adjustStock(used, sign){
 
 function expenseForm(x){
   const e = x || {date:today(), cat:"stock", who:S.who, pay:"PayNow"};
-  const itemOpts = `<option value="">Choose stock item</option>` + [...S.items].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${i.id}">${esc(i.name)}</option>`).join("");
+  const itemOpts = `<option value="">Choose stock item</option>` + [...S.items].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${i.id}" ${i.id===e.itemId?"selected":""}>${esc(i.name)}</option>`).join("");
   const stockedIt = x && itemById(x.itemId);
   openSheet(`<h2>${x?"Edit expense":"Add expense"}</h2>
     <form>
@@ -793,20 +795,21 @@ function expenseForm(x){
         <label class="f">Payment<select name="pay">${PAY.map(p=>`<option ${p===e.pay?"selected":""}>${p}</option>`).join("")}</select></label>
         <label class="f">Shop / supplier<input name="shop" value="${esc(e.shop)}" placeholder="optional"></label>
       </div>
+      <label class="f">Item (optional)<select name="itemId" id="expItem">${itemOpts}</select></label>
       ${x ? (stockedIt && x.qty ? `<p class="note">${esc(fmtQ(stockedIt,x.qty))} of ${esc(stockedIt.name)} was added to stock when this was saved. Editing here doesn't change stock.</p>` : "")
-          : `<div class="f" id="expStock">Add to stock (optional)
-              <div class="usedrow" style="grid-template-columns:1fr 116px"><select name="itemId" aria-label="Stock item">${itemOpts}</select><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="amount" aria-label="Amount received"><span class="u"></span></div></div>
-              <span style="font-weight:400">For a stock order: pick the item and how much arrived (chains in metres), and it's added to your count.</span></div>`}
+          : `<div class="f" id="expStock">Amount received (optional)
+              <div class="uin" style="max-width:180px"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="amount" aria-label="Amount received"><span class="u"></span></div>
+              <span style="font-weight:400">For a stock order: enter how much arrived (chains in metres) and it's added to the item's count.</span></div>`}
       ${photoField(e.photo)}
       <label class="f">Notes<input name="notes" value="${esc(e.notes)}"></label>
       <div class="actions">${delBtn(!!x)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const data = {date:fd.get("date"), amount:numOrNull(fd.get("amount"))||0, desc:fd.get("desc").trim(), cat:fd.get("cat"),
-        who:fd.get("who")||"", pay:fd.get("pay"), shop:fd.get("shop").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||""};
+        who:fd.get("who")||"", pay:fd.get("pay"), shop:fd.get("shop").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||"", itemId:fd.get("itemId")||""};
       if (x) { await S.db.collection("expenses").doc(x.id).update({...data, ...stamp()}); toast("Expense updated"); logAct(`edited an expense: ${data.desc}, ${money(data.amount)}`); return; }
       const itemId = fd.get("itemId") || "", qty = numOrNull(fd.get("qty"));
       const add = itemId && qty ? {itemId, qty} : null;
-      await S.db.collection("expenses").doc().set({...data, itemId: add ? itemId : "", qty: add ? qty : null, by:S.me, createdAt:Date.now()});
+      await S.db.collection("expenses").doc().set({...data, qty: add ? qty : null, by:S.me, createdAt:Date.now()});
       if (add) await adjustStock([add], +1);
       toast(add ? "Expense saved and stock added" : "Expense saved");
       logAct(`added an expense: ${data.desc}, ${money(data.amount)}${data.who && data.who !== S.who ? " (paid by "+data.who+")" : ""}`);
@@ -816,7 +819,7 @@ function expenseForm(x){
       const sync = () => { if (box) box.hidden = catSel.value !== "stock"; };
       sync(); catSel.addEventListener("change", sync);
       const sel = form.querySelector("[name=itemId]");
-      sel && sel.addEventListener("change", () => { const it = itemById(sel.value); form.querySelector("#expStock .u").textContent = it ? (it.unit || "pcs") : ""; });
+      sel && sel.addEventListener("change", () => { const it = itemById(sel.value), u = form.querySelector("#expStock .u"); if (u) u.textContent = it ? (it.unit || "pcs") : ""; });
       bindDelete(form, async () => { await S.db.collection("expenses").doc(x.id).delete(); toast("Expense deleted"); logAct(`deleted an expense: ${x.desc}, ${money(x.amount)}`); });
     });
 }
@@ -845,6 +848,9 @@ function linkForm(l){
         <label class="f">Shop / supplier<input name="shop" value="${esc(e.shop)}" placeholder="e.g. Taobao, Etsy shop name"></label>
         <label class="f">Metal<select name="metal">${opt(METAL,e.metal)}</select></label>
       </div>
+      <div class="f">Used for
+        <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label></div>
+      </div>
       <div class="grid2">
         <label class="f">Price (S$)<input name="price" type="number" step="0.01" min="0" inputmode="decimal" value="${e.price??""}"></label>
         <label class="f">Per (pack size)<input name="pack" value="${esc(e.pack)}" placeholder="e.g. 1 m, 100 pcs"></label>
@@ -856,7 +862,7 @@ function linkForm(l){
       <div class="actions">${delBtn(!!l)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const url = fd.get("url").trim();
-      const data = {title:fd.get("title").trim(), url, shop:fd.get("shop").trim(), metal:fd.get("metal"), price:numOrNull(fd.get("price")),
+      const data = {title:fd.get("title").trim(), url, lines:["pj","kc"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), price:numOrNull(fd.get("price")),
         pack:fd.get("pack").trim(), specs:fd.get("specs").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
       const ref = l ? S.db.collection("links").doc(l.id) : S.db.collection("links").doc();
       if (!l) data.createdAt = Date.now();
@@ -907,8 +913,8 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
   document.head.appendChild(s);
 });
 const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes"];
-const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Price (S$)","Pack size","Specifications","Notes"];
-const EXP_COLS = ["ID","Date","Type","What for","Amount (S$)","Paid by","Payment","Shop / supplier","Notes"];
+const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price (S$)","Pack size","Specifications","Notes"];
+const EXP_COLS = ["ID","Date","Type","What for","Item","Amount (S$)","Paid by","Payment","Shop / supplier","Notes"];
 const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Payment","Customer / event","Materials used","Sold by"];
 const HELP = [
   "momento.co stock book spreadsheet", "Co-owned by Jessica & Valerie", "",
@@ -924,6 +930,8 @@ const HELP = [
   "Unit: m, cm, pcs, inch, ft. Keep chains in m (metres).",
   "Supplier link: type the Product name exactly as it appears on the Links sheet.",
   "Expenses Type: Stock & supplies, One-time / equipment, Admin & fees, Packaging & marketing, Other",
+  "Expenses Item: optional. Type the stock item's Name exactly as on the Stock sheet.",
+  "Links Used for: PJ, Keychain or Both.",
   "Expenses Paid by: Jessica or Valerie. Date: any normal date, e.g. 3/10/2026 (day/month/year).",
   "Expenses uploaded here don't change stock counts. To add a stock order to your count, add it in the app.",
   "",
@@ -940,7 +948,7 @@ async function buildWorkbook(){
     "In stock":i.qty ?? "", "Unit":i.unit||"", "Restock at":i.lowAt ?? "", "Cost per unit (S$)":i.cost ?? "",
     "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||""}));
   const links = [...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l => ({
-    "ID":l.id, "Product name":l.title||"", "Link":l.url||"", "Shop":l.shop||"", "Metal":metalText(l.metal),
+    "ID":l.id, "Product name":l.title||"", "Link":l.url||"", "Shop":l.shop||"", "Metal":metalText(l.metal), "Used for":linesText(l.lines),
     "Price (S$)":l.price ?? "", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||""}));
   const sales = [...S.sales].sort(bySaleDesc).map(s => ({
     "Date":s.date||"", "Line":LINE[s.line]||"", "Product":s.product||"", "Details":s.desc||"", "Price (S$)":Number(s.price)||0,
@@ -949,11 +957,11 @@ async function buildWorkbook(){
     "Sold by": s.who || (!s.by ? "" : s.by === S.me ? (S.myName || "") : nameOf(s.by))}));
   const add = (rows, cols, widths, name) => { const ws = X.utils.json_to_sheet(rows, {header:cols}); ws["!cols"] = widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb, ws, name); };
   add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30], "Stock");
-  add(links, LINK_COLS, [22,36,42,18,8,10,12,46,30], "Links");
+  add(links, LINK_COLS, [22,36,42,18,8,11,10,12,46,30], "Links");
   const exps = [...S.expenses].sort(bySaleDesc).map(x => ({
-    "ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "What for":x.desc||"", "Amount (S$)":Number(x.amount)||0,
+    "ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "What for":x.desc||"", "Item":itemById(x.itemId)?.name||"", "Amount (S$)":Number(x.amount)||0,
     "Paid by":x.who||"", "Payment":x.pay||"", "Shop / supplier":x.shop||"", "Notes":x.notes||""}));
-  add(exps, EXP_COLS, [22,11,22,40,12,10,10,20,30], "Expenses");
+  add(exps, EXP_COLS, [22,11,22,40,32,12,10,10,20,30], "Expenses");
   add(sales, SALES_COLS, [11,20,16,36,10,10,18,42,14], "Sales");
   const help = X.utils.aoa_to_sheet(HELP.map(l=>[l])); help["!cols"] = [{wch:110}];
   X.utils.book_append_sheet(wb, help, "How to use");
@@ -1020,8 +1028,8 @@ async function planImport(file){
     else if (keys.includes("product name") || keys.includes("link")) linkRows = r; else stockRows = r;
   }
   const plan = {writes:[], c:{sn:0,sc:0,ss:0,ln:0,lc:0,ls:0,en:0,ec:0,es:0}, warnings:[]};
-  (expRows||[]).forEach((r, i) => {
-    const desc = txt(pick(r,"what for","description","item")), amount = numCell(pick(r,"amount","cost","price"));
+  const doExpenses = () => (expRows||[]).forEach((r, i) => {
+    const desc = txt(pick(r,"what for","description")), amount = numCell(pick(r,"amount","cost","price"));
     if (!desc && amount == null) return;
     const idIn = txt(pick(r,"id")); const ex = idIn ? S.expenses.find(x => x.id === idIn) : null;
     if (idIn && !ex) plan.warnings.push(`Expenses row ${i+2}: ID “${idIn}” isn't in the app, so it was added as new.`);
@@ -1030,20 +1038,25 @@ async function planImport(file){
     const whoIn = txt(pick(r,"paid by","who"));
     let who = PEOPLE.find(p => norm(p) === norm(whoIn)) || "";
     if (!who) { who = ex?.who || ""; if (whoIn) plan.warnings.push(`Expenses row ${i+2}: “${whoIn}” isn't Jessica or Valerie, so Paid by was left blank.`); }
-    const data = {date, amount: amount || 0, desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who,
+    const itemIn = txt(pick(r,"item","stock item"));
+    let itemId = ex?.itemId || "";
+    if (itemIn) { const m = itemNames.get(norm(itemIn)); if (m) itemId = m; else plan.warnings.push(`Expenses row ${i+2}: item “${itemIn}” doesn't match a Name on the Stock sheet, so it was left as is.`); }
+    else itemId = "";
+    const data = {date, amount: amount || 0, desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who, itemId,
       pay: txt(pick(r,"payment")), shop: txt(pick(r,"shop / supplier","shop","supplier")), notes: txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("expenses").doc().id;
     if (ex) { if (same(ex, data)) plan.c.es++; else { plan.c.ec++; plan.writes.push({col:"expenses", id, data, isNew:false}); } }
-    else { plan.c.en++; plan.writes.push({col:"expenses", id, data:{...data, itemId:"", qty:null, createdAt:Date.now()}, isNew:true}); }
+    else { plan.c.en++; plan.writes.push({col:"expenses", id, data:{...data, qty:null, createdAt:Date.now()}, isNew:true}); }
   });
   const byTitle = new Map(S.links.map(l => [norm(l.title), l.id]));
+  const itemNames = new Map(S.items.map(i => [norm(i.name), i.id]));
   (linkRows||[]).forEach((r, i) => {
     const title = txt(pick(r,"product name","name","title")); if (!title) return;
     const idIn = txt(pick(r,"id")); const ex = idIn ? linkById(idIn) : null;
     if (idIn && !ex) plan.warnings.push(`Links row ${i+2}: ID “${idIn}” isn't in the app, so it was added as new.`);
     const url = txt(pick(r,"link","url"));
     if (url && !safeUrl(url)) plan.warnings.push(`Links row ${i+2}: the link should start with https://`);
-    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), price:numCell(pick(r,"price")),
+    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), lines:mapLines(pick(r,"used for"), ex?.lines || []), price:numCell(pick(r,"price")),
       pack:txt(pick(r,"pack size","pack")), specs:txt(pick(r,"specifications","specs")), notes:txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("links").doc().id;
     byTitle.set(norm(title), id);
@@ -1063,9 +1076,11 @@ async function planImport(file){
       qty:numCell(pick(r,"in stock","qty","quantity")), unit:mapUnit(pick(r,"unit"), ex?.unit), lowAt:numCell(pick(r,"restock at")),
       cost:numCell(pick(r,"cost per unit","cost")), linkId, notes:txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("items").doc().id;
+    itemNames.set(norm(name), id);
     if (ex) { if (same(ex, data)) plan.c.ss++; else { plan.c.sc++; plan.writes.push({col:"items", id, data, isNew:false}); } }
     else { plan.c.sn++; plan.writes.push({col:"items", id, data, isNew:true}); }
   });
+  doExpenses();
   if (!stockRows && !linkRows && !expRows) plan.warnings.push("No Stock, Links or Expenses sheet was found in this file.");
   return plan;
 }
