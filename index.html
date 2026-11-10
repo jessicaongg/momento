@@ -478,7 +478,7 @@ function expRow(x){
   return `<div class="row clickable" data-a="editExp" data-id="${x.id}" role="button" tabindex="0">
     ${x.photo ? thumb(x.photo, "", "receipt") : ""}
     <div class="main"><div class="title">${esc(x.desc || EXP_CAT[x.cat] || "Expense")}</div><div class="sub">${sub}</div>
-      ${it ? `<div class="sub">${x.qty ? `Added to stock: ${esc(fmtQ(it,x.qty))} of ` : "Item: "}${esc(it.name)}</div>` : ""}</div>
+      ${it && x.qty ? `<div class="sub">Added to stock: ${esc(fmtQ(it,x.qty))} of ${esc(it.name)}</div>` : ""}</div>
     <div class="end"><span class="money">${money(x.amount)}</span></div>
   </div>`;
 }
@@ -786,7 +786,7 @@ function expenseForm(x){
         <label class="f">Date<input name="date" type="date" required value="${esc(e.date)}"></label>
         <label class="f">Amount (S$)<input name="amount" type="number" step="0.01" min="0" required inputmode="decimal" value="${e.amount??""}"></label>
       </div>
-      <label class="f">What for<input name="desc" required value="${esc(e.desc)}" placeholder="e.g. 5 m SS chain, welder, business registration"></label>
+      <label class="f">Item<input name="desc" required value="${esc(e.desc)}" placeholder="e.g. 5 m SS chain, welder, business registration"></label>
       <div class="grid2">
         <label class="f">Type<select name="cat" id="expCat">${opt(EXP_CAT,e.cat)}</select></label>
         <label class="f">Paid by<select name="who">${PEOPLE.map(p=>`<option ${p===(e.who||S.who)?"selected":""}>${p}</option>`).join("")}</select></label>
@@ -795,21 +795,20 @@ function expenseForm(x){
         <label class="f">Payment<select name="pay">${PAY.map(p=>`<option ${p===e.pay?"selected":""}>${p}</option>`).join("")}</select></label>
         <label class="f">Shop / supplier<input name="shop" value="${esc(e.shop)}" placeholder="optional"></label>
       </div>
-      <label class="f">Item (optional)<select name="itemId" id="expItem">${itemOpts}</select></label>
       ${x ? (stockedIt && x.qty ? `<p class="note">${esc(fmtQ(stockedIt,x.qty))} of ${esc(stockedIt.name)} was added to stock when this was saved. Editing here doesn't change stock.</p>` : "")
-          : `<div class="f" id="expStock">Amount received (optional)
-              <div class="uin" style="max-width:180px"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="amount" aria-label="Amount received"><span class="u"></span></div>
-              <span style="font-weight:400">For a stock order: enter how much arrived (chains in metres) and it's added to the item's count.</span></div>`}
+          : `<div class="f" id="expStock">Add to stock count (optional)
+              <div class="usedrow" style="grid-template-columns:1fr 116px"><select name="itemId" aria-label="Stock item">${itemOpts}</select><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="amount" aria-label="Amount received"><span class="u"></span></div></div>
+              <span style="font-weight:400">For a stock order: pick the stock item and how much arrived (chains in metres), and it's added to your count.</span></div>`}
       ${photoField(e.photo)}
       <label class="f">Notes<input name="notes" value="${esc(e.notes)}"></label>
       <div class="actions">${delBtn(!!x)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const data = {date:fd.get("date"), amount:numOrNull(fd.get("amount"))||0, desc:fd.get("desc").trim(), cat:fd.get("cat"),
-        who:fd.get("who")||"", pay:fd.get("pay"), shop:fd.get("shop").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||"", itemId:fd.get("itemId")||""};
+        who:fd.get("who")||"", pay:fd.get("pay"), shop:fd.get("shop").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||""};
       if (x) { await S.db.collection("expenses").doc(x.id).update({...data, ...stamp()}); toast("Expense updated"); logAct(`edited an expense: ${data.desc}, ${money(data.amount)}`); return; }
       const itemId = fd.get("itemId") || "", qty = numOrNull(fd.get("qty"));
       const add = itemId && qty ? {itemId, qty} : null;
-      await S.db.collection("expenses").doc().set({...data, qty: add ? qty : null, by:S.me, createdAt:Date.now()});
+      await S.db.collection("expenses").doc().set({...data, itemId: add ? itemId : "", qty: add ? qty : null, by:S.me, createdAt:Date.now()});
       if (add) await adjustStock([add], +1);
       toast(add ? "Expense saved and stock added" : "Expense saved");
       logAct(`added an expense: ${data.desc}, ${money(data.amount)}${data.who && data.who !== S.who ? " (paid by "+data.who+")" : ""}`);
@@ -914,7 +913,7 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
 });
 const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes"];
 const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price (S$)","Pack size","Specifications","Notes"];
-const EXP_COLS = ["ID","Date","Type","What for","Item","Amount (S$)","Paid by","Payment","Shop / supplier","Notes"];
+const EXP_COLS = ["ID","Date","Type","Item","Amount (S$)","Paid by","Payment","Shop / supplier","Notes"];
 const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Payment","Customer / event","Materials used","Sold by"];
 const HELP = [
   "momento.co stock book spreadsheet", "Co-owned by Jessica & Valerie", "",
@@ -930,7 +929,7 @@ const HELP = [
   "Unit: m, cm, pcs, inch, ft. Keep chains in m (metres).",
   "Supplier link: type the Product name exactly as it appears on the Links sheet.",
   "Expenses Type: Stock & supplies, One-time / equipment, Admin & fees, Packaging & marketing, Other",
-  "Expenses Item: optional. Type the stock item's Name exactly as on the Stock sheet.",
+  "Expenses Item: what you bought or paid for, in your own words (e.g. 5 m SS chain, welder).",
   "Links Used for: PJ, Keychain or Both.",
   "Expenses Paid by: Jessica or Valerie. Date: any normal date, e.g. 3/10/2026 (day/month/year).",
   "Expenses uploaded here don't change stock counts. To add a stock order to your count, add it in the app.",
@@ -959,9 +958,9 @@ async function buildWorkbook(){
   add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30], "Stock");
   add(links, LINK_COLS, [22,36,42,18,8,11,10,12,46,30], "Links");
   const exps = [...S.expenses].sort(bySaleDesc).map(x => ({
-    "ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "What for":x.desc||"", "Item":itemById(x.itemId)?.name||"", "Amount (S$)":Number(x.amount)||0,
+    "ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "Item":x.desc||"", "Amount (S$)":Number(x.amount)||0,
     "Paid by":x.who||"", "Payment":x.pay||"", "Shop / supplier":x.shop||"", "Notes":x.notes||""}));
-  add(exps, EXP_COLS, [22,11,22,40,32,12,10,10,20,30], "Expenses");
+  add(exps, EXP_COLS, [22,11,22,40,12,10,10,20,30], "Expenses");
   add(sales, SALES_COLS, [11,20,16,36,10,10,18,42,14], "Sales");
   const help = X.utils.aoa_to_sheet(HELP.map(l=>[l])); help["!cols"] = [{wch:110}];
   X.utils.book_append_sheet(wb, help, "How to use");
@@ -1029,7 +1028,7 @@ async function planImport(file){
   }
   const plan = {writes:[], c:{sn:0,sc:0,ss:0,ln:0,lc:0,ls:0,en:0,ec:0,es:0}, warnings:[]};
   const doExpenses = () => (expRows||[]).forEach((r, i) => {
-    const desc = txt(pick(r,"what for","description")), amount = numCell(pick(r,"amount","cost","price"));
+    const desc = txt(pick(r,"item","what for","description")), amount = numCell(pick(r,"amount","cost","price"));
     if (!desc && amount == null) return;
     const idIn = txt(pick(r,"id")); const ex = idIn ? S.expenses.find(x => x.id === idIn) : null;
     if (idIn && !ex) plan.warnings.push(`Expenses row ${i+2}: ID “${idIn}” isn't in the app, so it was added as new.`);
@@ -1038,15 +1037,11 @@ async function planImport(file){
     const whoIn = txt(pick(r,"paid by","who"));
     let who = PEOPLE.find(p => norm(p) === norm(whoIn)) || "";
     if (!who) { who = ex?.who || ""; if (whoIn) plan.warnings.push(`Expenses row ${i+2}: “${whoIn}” isn't Jessica or Valerie, so Paid by was left blank.`); }
-    const itemIn = txt(pick(r,"item","stock item"));
-    let itemId = ex?.itemId || "";
-    if (itemIn) { const m = itemNames.get(norm(itemIn)); if (m) itemId = m; else plan.warnings.push(`Expenses row ${i+2}: item “${itemIn}” doesn't match a Name on the Stock sheet, so it was left as is.`); }
-    else itemId = "";
-    const data = {date, amount: amount || 0, desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who, itemId,
+    const data = {date, amount: amount || 0, desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who,
       pay: txt(pick(r,"payment")), shop: txt(pick(r,"shop / supplier","shop","supplier")), notes: txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("expenses").doc().id;
     if (ex) { if (same(ex, data)) plan.c.es++; else { plan.c.ec++; plan.writes.push({col:"expenses", id, data, isNew:false}); } }
-    else { plan.c.en++; plan.writes.push({col:"expenses", id, data:{...data, qty:null, createdAt:Date.now()}, isNew:true}); }
+    else { plan.c.en++; plan.writes.push({col:"expenses", id, data:{...data, itemId:"", qty:null, createdAt:Date.now()}, isNew:true}); }
   });
   const byTitle = new Map(S.links.map(l => [norm(l.title), l.id]));
   const itemNames = new Map(S.items.map(i => [norm(i.name), i.id]));
