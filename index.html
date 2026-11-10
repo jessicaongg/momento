@@ -97,7 +97,7 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .pill{display:inline-flex;align-items:center;font-size:.7rem;font-weight:700;letter-spacing:.03em;padding:2px 8px;border-radius:999px;white-space:nowrap}
 .pill.fin{background:var(--cream);color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
-.pill.pj{background:var(--pj-bg);color:var(--pj)} .pill.kc{background:var(--kc-bg);color:var(--kc)}
+.pill.un{background:var(--sunk);color:var(--muted)} .pill.pj{background:var(--pj-bg);color:var(--pj)} .pill.kc{background:var(--kc-bg);color:var(--kc)}
 .pill.low{background:var(--warn-bg);color:var(--warn)} .pill.out{background:var(--bad-bg);color:var(--bad)}
 .pill.uncounted{background:var(--sunk);color:var(--muted)}
 .sw{width:12px;height:12px;border-radius:50%;flex:none;display:inline-block;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
@@ -234,10 +234,10 @@ img{max-width:100%}
 <script src="config.js"></script>
 <script>
 (() => {
-const CAT = {chain:"Chain", jumpring:"Jump ring", charm:"Charm", other:"Other supply"};
+const CAT = {chain:"Chain", jumpring:"Jump ring", charm:"Charm", findings:"Findings", other:"Other supply"};
 const METAL = {YG:"Yellow gold", SS:"Sterling silver", RG:"Rose gold", mixed:"Mixed", "":"No metal"};
 const LINE = {pj:"Permanent jewellery", kc:"Keychain"};
-const LINE_SHORT = {pj:"PJ", kc:"Keychain"};
+const LINE_SHORT = {pj:"PJ", kc:"Keychain", un:"Unsure"};
 const PRODUCTS = {pj:["Bracelet","Anklet","Necklace","Ring","Other"], kc:["Bottle keychain","Keychain","Other"]};
 const PAY = ["PayNow","Cash","Card","PayLah","Other"];
 // Starting estimates for chain used per piece (cm); editable in the app under Stock → Chain lengths.
@@ -487,20 +487,20 @@ function vStock(){
     (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || i.cat===f.cat)) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) &&
     (f.line==="all"||(i.lines||[]).includes(f.line)) &&
     (!f.q || (i.name+" "+(i.style||"")+" "+(i.notes||"")).toLowerCase().includes(f.q.toLowerCase())));
-  const order = {chain:0,jumpring:1,charm:2,other:3};
+  const order = {chain:0,jumpring:1,charm:2,findings:3,other:4};
   items.sort((a,b)=>(order[a.cat]-order[b.cat]) || a.name.localeCompare(b.name));
   return `<section>
     <div class="sec-head"><h2>Stock</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${S.canWrite?`<button class="btn" data-a="lengths">Chain lengths</button>`:""}<button class="btn" data-a="excel">Excel</button>${addBtn("newItem","Add item")}</div></div>
     <div class="filters">
       <input id="q" type="search" placeholder="Search stock (e.g. birthstone, double-sided)" value="${esc(f.q)}" aria-label="Search stock">
-      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["other","Other"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
+      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["findings","Findings"],["other","Other"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["YG","YG","YG"],["SS","SS","SS"],["RG","RG","RG"]],f.metal)}
       ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],f.finish||"all")}
-      ${chipset("line",[["all","Both lines"],["pj","Permanent jewellery"],["kc","Keychain"]],f.line)}
+      ${chipset("line",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],f.line)}
     </div>
     ${f.cat === "dead" ? `<p class="note">The archive keeps dead stock out of your main list and restock alerts. Tap Restore to bring an item back, or open it to write off more pieces.</p>`
       : `<div class="key" aria-label="Colour key"><span><i style="background:var(--nolink-bg)"></i>No supplier link yet</span><span><i style="background:var(--due-bg)"></i>Restock due (low or out)</span></div>
-      <p class="note">Tap − / + to use or add one unit. Tap an item to edit its count, restock level or supplier link. Charms can be tagged for both lines. Dead stock lives in the Archive.</p>`}
+      <p class="note">Tap − / + to use or add one unit. Tap an item to edit its count, restock level or supplier link. Charms can be tagged for both lines, or Unsure if you haven't decided. Dead stock lives in the Archive.</p>`}
     <div class="list">${loading("items") || (items.length ? items.map(i=>itemRow(i)).join("") : `<div class="empty">${f.cat === "dead" ? "Nothing archived. To archive an item, open it and tick “Move to archive (dead stock)”." : S.items.length?"No items match these filters.":"No stock yet. Add your chains, jump rings and charms with “Add item”."}</div>`)}</div>
     ${(() => {
       const w = [...S.deadstock].sort((a,b) => (b.date||"").localeCompare(a.date||"") || (b.createdAt||0) - (a.createdAt||0));
@@ -538,7 +538,7 @@ function vSales(){
   </section>`;
 }
 
-function guessCat(t){ t = (t||"").toLowerCase(); return /jump ?ring/.test(t) ? "jumpring" : /chain/.test(t) ? "chain" : /charm|pendant|birthstone/.test(t) ? "charm" : "other"; }
+function guessCat(t){ t = (t||"").toLowerCase(); return /jump ?ring/.test(t) ? "jumpring" : /chain/.test(t) ? "chain" : /charm|pendant|birthstone/.test(t) ? "charm" : /finding|clasp|lobster|connector|bail|ear ?wire|earring hook|crimp|end cap|spring ring|toggle|key ?ring|split ring/.test(t) ? "findings" : "other"; }
 function newItemFromLink(link, qty, unit, sgd){
   return {name: link.title, cat: guessCat(link.title), metal: link.metal || "", finish: link.finish || "", style: "", lines: (link.lines && link.lines.length) ? link.lines : ["pj"],
     qty, unit: unit || "pcs", lowAt: null, cost: qty && sgd ? Math.round(sgd / qty * 100) / 100 : null, linkId: link.id, notes: "", photo: link.photo || "", ...stamp()};
@@ -695,7 +695,7 @@ function vLinks(){
   return `<section>
     <div class="sec-head"><h2>Wishlist &amp; links</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newLink","Add link")}</div></div>
     <input id="lq" type="search" placeholder="Search links, shops or specs" value="${esc(S.lq||"")}" aria-label="Search links">
-    ${chipset("lline",[["all","Both lines"],["pj","Permanent jewellery"],["kc","Keychain"]],lf)}
+    ${chipset("lline",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],lf)}
     ${chipset("lfav",[["all","All links"],["fav","★ Favourites"]],S.f.lfav||"all")}
     ${chipset("lfin",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],S.f.lfin||"all")}
     <p class="note">Save where you buy each supply and its exact specs (metal, gauge, chain style, length, pack size), so either of you can reorder the same thing.</p>
@@ -787,7 +787,7 @@ function itemForm(it){
       <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
       <label class="f">Style / details<input name="style" value="${esc(e.style)}" placeholder="e.g. double-sided, birthstone, paperclip chain, 4mm"></label>
       <div class="f" style="font-size:.8rem;font-weight:600;color:var(--muted)">Used for
-        <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label></div>
+        <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label><label><input type="checkbox" name="un" ${(e.lines||[]).includes("un")?"checked":""}> Unsure</label></div>
       </div>
       <div class="grid3">
         <label class="f">In stock<input name="qty" type="number" step="any" min="0" inputmode="decimal" value="${e.qty??""}" placeholder="—"></label>
@@ -809,7 +809,7 @@ function itemForm(it){
       <label class="f">Notes<textarea name="notes">${esc(e.notes)}</textarea></label>
       <div class="actions">${delBtn(!!it)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
-      const lines = ["pj","kc"].filter(k=>fd.get(k));
+      const lines = ["pj","kc","un"].filter(k=>fd.get(k));
       const data = {name:fd.get("name").trim(), cat:fd.get("cat"), metal:fd.get("metal"), finish:fd.get("finish")||"", style:fd.get("style").trim(), lines,
         qty:numOrNull(fd.get("qty")), unit:fd.get("unit"), lowAt:numOrNull(fd.get("lowAt")), cost:numOrNull(fd.get("cost")),
         linkId:fd.get("linkId")||"", notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
@@ -1134,7 +1134,7 @@ function linkForm(l){
       </div>
       <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
       <div class="f">Used for
-        <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label></div>
+        <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label><label><input type="checkbox" name="un" ${(e.lines||[]).includes("un")?"checked":""}> Unsure</label></div>
       </div>
       <div class="grid2">
         <label class="f">Price<div class="uin"><input name="price" type="number" step="0.01" min="0" inputmode="decimal" value="${e.price??""}"><select name="priceCur" style="width:auto" aria-label="Currency">${curOpts(e.priceCur||"SGD")}</select></div></label>
@@ -1147,7 +1147,7 @@ function linkForm(l){
       <div class="actions">${delBtn(!!l)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const url = fd.get("url").trim();
-      const data = {title:fd.get("title").trim(), url, lines:["pj","kc"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), finish:fd.get("finish")||"", price:numOrNull(fd.get("price")), priceCur:fd.get("priceCur")||"SGD",
+      const data = {title:fd.get("title").trim(), url, lines:["pj","kc","un"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), finish:fd.get("finish")||"", price:numOrNull(fd.get("price")), priceCur:fd.get("priceCur")||"SGD",
         pack:fd.get("pack").trim(), specs:fd.get("specs").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
       const ref = l ? S.db.collection("links").doc(l.id) : S.db.collection("links").doc();
       if (!l) data.createdAt = Date.now();
@@ -1209,10 +1209,10 @@ const HELP = [
   "3. In the app, open Stock or Links, tap Excel, then Choose file and pick this file. You'll see a summary before anything changes.",
   "",
   "ALLOWED VALUES",
-  "Type: Chain, Jump ring, Charm, Other supply",
+  "Type: Chain, Jump ring, Charm, Findings (clasps, connectors, ear wires...), Other supply",
   "Metal: YG, SS, RG, Mixed (or blank)",
   "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
-  "Used for: PJ, Keychain, Both",
+  "Used for: PJ, Keychain, Both or Unsure",
   "Unit: m, cm, pcs, inch, ft. Keep chains in m (metres).",
   "Dead stock (Stock sheet): Yes moves the item to the Archive (no restock alerts). To write off damaged or lost pieces, use the item's edit screen in the app.",
   "Supplier link: type the Product name exactly as it appears on the Links sheet.",
@@ -1228,12 +1228,13 @@ const HELP = [
   "",
   "Uploading never deletes anything. The Sales sheet is for reference only; log sales in the app."
 ];
-const linesText = l => { l = l||[]; return l.includes("pj") && l.includes("kc") ? "Both" : l.includes("kc") ? "Keychain" : l.includes("pj") ? "PJ" : ""; };
+const linesText = l => { l = l||[]; const b = l.includes("pj") && l.includes("kc") ? "Both" : l.includes("kc") ? "Keychain" : l.includes("pj") ? "PJ" : "";
+  return l.includes("un") ? (b ? b + ", Unsure" : "Unsure") : b; };
 const metalText = m => m === "mixed" ? "Mixed" : (m || "");
 
 async function buildWorkbook(){
   const X = await loadXLSX(); const wb = X.utils.book_new();
-  const order = {chain:0,jumpring:1,charm:2,other:3};
+  const order = {chain:0,jumpring:1,charm:2,findings:3,other:4};
   const stock = [...S.items].sort((a,b)=>(order[a.cat]-order[b.cat]) || a.name.localeCompare(b.name)).map(i => ({
     "ID":i.id, "Name":i.name, "Type":CAT[i.cat]||"", "Metal":metalText(i.metal), "Style / details":i.style||"", "Used for":linesText(i.lines),
     "In stock":i.qty ?? "", "Unit":i.unit||"", "Restock at":i.lowAt ?? "", "Cost per unit (S$)":i.cost ?? "",
@@ -1288,14 +1289,15 @@ function pick(row, ...names){
   for (const k of Object.keys(row)) if (names.includes(norm(k).replace(/\s*\(.*\)$/,""))) return row[k];
   return "";
 }
-function mapCat(v, prev){ const s = norm(v); if (!s) return prev || "other"; if (s.startsWith("chain")) return "chain"; if (s.startsWith("jump")) return "jumpring"; if (s.startsWith("charm")) return "charm"; return "other"; }
+function mapCat(v, prev){ const s = norm(v); if (!s) return prev || "other"; if (s.startsWith("chain")) return "chain"; if (s.startsWith("jump")) return "jumpring"; if (s.startsWith("charm")) return "charm"; if (s.startsWith("find")) return "findings"; return "other"; }
 function mapMetal(v){ const s = norm(v).replace(/[^a-z]/g,"");
   if (["yg","yellowgold","gold","yellow"].includes(s)) return "YG";
   if (["ss","sterlingsilver","silver","sterling"].includes(s)) return "SS";
   if (["rg","rosegold","rose"].includes(s)) return "RG";
   return s.startsWith("mix") ? "mixed" : ""; }
 function mapLines(v, prev){ const s = norm(v); if (!s) return prev || ["pj"]; if (s.includes("both")) return ["pj","kc"];
-  const out = []; if (/pj|perm|jewel/.test(s)) out.push("pj"); if (/key|kc/.test(s)) out.push("kc"); return out.length ? out : (prev || ["pj"]); }
+  const out = []; if (/pj|perm|jewel/.test(s)) out.push("pj"); if (/key|kc/.test(s)) out.push("kc");
+  if (/unsure|not sure|undecided|\?/.test(s)) out.push("un"); return out.length ? out : (prev || ["pj"]); }
 function mapUnit(v, prev){ const s = norm(v); if (!s) return prev || "pcs";
   if (/^(m|metres?|meters?)$/.test(s)) return "m"; if (/^(cm|centimet)/.test(s)) return "cm";
   if (/^(in|inch)/.test(s)) return "inch"; if (/^(ft|feet|foot)/.test(s)) return "ft"; return "pcs"; }
