@@ -498,8 +498,8 @@ function vStock(){
       const w = [...S.deadstock].sort((a,b) => (b.date||"").localeCompare(a.date||"") || (b.createdAt||0) - (a.createdAt||0));
       if (!w.length || f.cat !== "dead") return "";
       const total = w.reduce((a, x) => a + (Number(x.value) || 0), 0);
-      return `<h3>Written off</h3><p class="note num">${w.length} write-off${w.length===1?"":"s"} · about ${money(total)} at cost</p>
-        <div class="list">${w.slice(0, 50).map(x => `<div class="row"><div class="main"><div class="title">${esc(x.name)} <span class="pill out">${esc(WRITE_OFF[x.reason] || "Written off")}</span></div>
+      return `<h3>Written off</h3><p class="note num">${w.length} write-off${w.length===1?"":"s"} · about ${money(total)} at cost${S.canWrite ? " · tap one to change or undo it" : ""}</p>
+        <div class="list">${w.slice(0, 50).map(x => `<div class="row${S.canWrite ? " clickable" : ""}" ${S.canWrite ? `data-a="editWO" data-id="${x.id}" role="button" tabindex="0"` : ""}><div class="main"><div class="title">${esc(x.name)} <span class="pill out">${esc(WRITE_OFF[x.reason] || "Written off")}</span></div>
           <div class="sub">${esc([fmtDate(x.date), `${x.qty} ${x.unit || ""}`.trim(), x.who ? "by " + x.who : "", x.note].filter(Boolean).join(" · "))}</div></div>
           <div class="end">${x.value ? `<span class="money">${money(x.value)}</span>` : ""}</div></div>`).join("")}</div>`;
     })()}
@@ -823,7 +823,7 @@ function itemForm(it){
 
 function saleForm(s){
   const e = s || {date:today(), line:"pj", product:"Bracelet", pay:"PayNow", used:[]};
-  const itemOpts = cur => `<option value="">Choose stock item</option>` + [...S.items].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${i.id}" ${i.id===cur?"selected":""}>${esc(i.name)}${i.qty!=null?` (${i.qty} ${esc(i.unit||"")})`:""}</option>`).join("");
+  const itemOpts = cur => `<option value="">Choose stock item</option>` + [...S.items].filter(i => !i.dead || i.id === cur).sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${i.id}" ${i.id===cur?"selected":""}>${esc(i.name)}${i.qty!=null?` (${i.qty} ${esc(i.unit||"")})`:""}</option>`).join("");
   const unitFor = id => { const it = itemById(id); return it ? (isM(it) ? "cm" : (it.unit||"pcs")) : ""; };
   const toInput = (id, q) => q == null ? "" : (isM(itemById(id)) ? Math.round(q*10000)/100 : q);
   const usedRow = u => `<div class="usedrow"><select name="usedItem" aria-label="Material">${itemOpts(u?.itemId)}</select><div class="uin"><input name="usedQty" type="number" step="any" min="0" inputmode="decimal" value="${toInput(u?.itemId,u?.qty)}" placeholder="qty" aria-label="Amount used"><span class="u">${unitFor(u?.itemId)}</span></div><button type="button" class="btn small ghost" data-a="rmUsed" aria-label="Remove">✕</button></div>`;
@@ -924,7 +924,7 @@ function expenseForm(x, preset){
   const curSrc = x ? srcOf(x) : (preset && preset.src) || "";
   const srcOpts = `<option value="">Not a stock order</option>`
     + (S.links.length ? `<optgroup label="Wishlist / supplier links">${[...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l=>`<option value="link:${l.id}" ${"link:"+l.id===curSrc?"selected":""}>${esc(l.title)}${l.shop?" — "+esc(l.shop):""}</option>`).join("")}</optgroup>` : "")
-    + (S.items.length ? `<optgroup label="Stock items">${[...S.items].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="item:${i.id}" ${"item:"+i.id===curSrc?"selected":""}>${esc(i.name)}</option>`).join("")}</optgroup>` : "");
+    + (S.items.length ? `<optgroup label="Stock items">${[...S.items].filter(i => !i.dead || "item:"+i.id === curSrc).sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="item:${i.id}" ${"item:"+i.id===curSrc?"selected":""}>${esc(i.name)}</option>`).join("")}</optgroup>` : "");
   const listPrice = e.listPrice ?? (e.origAmount != null ? Number(e.origAmount) + Number(e.discount || 0) : e.amount ?? "");
   const tgt = x ? stockTarget(x) : {};
   openSheet(`<h2>${x ? "Edit expense" : preset ? "Log a purchase" : "Add expense"}</h2>
@@ -1039,7 +1039,7 @@ function expenseForm(x, preset){
         // Narrow the drop-down to links and stock items with similar names
         const qEl = form.querySelector("#expSrcQ"), hint = form.querySelector("#expSrcHint"), descEl = form.querySelector("[name=desc]");
         const all = [...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l => ({v:"link:"+l.id, g:"Wishlist / supplier links", t:l.title + (l.shop ? " — " + l.shop : "")}))
-          .concat([...S.items].sort((a,b)=>a.name.localeCompare(b.name)).map(i => ({v:"item:"+i.id, g:"Stock items", t:i.name})));
+          .concat([...S.items].filter(i => !i.dead || "item:"+i.id === curSrc).sort((a,b)=>a.name.localeCompare(b.name)).map(i => ({v:"item:"+i.id, g:"Stock items", t:i.name})));
         const words = t => norm(t).split(/[^a-z0-9]+/).filter(w => w.length > 1);
         const score = (t, q) => { const ws = words(t); return q.reduce((a, k) => a + (ws.includes(k) ? 2 : ws.some(w => w.startsWith(k) || (k.startsWith(w) && w.length > 2)) ? 1 : 0), 0); };
         const rebuild = text => {
@@ -1060,6 +1060,38 @@ function expenseForm(x, preset){
       }
       bindDelete(form, async () => { await S.db.collection("expenses").doc(x.id).delete(); toast("Expense deleted"); logAct(`deleted an expense: ${x.desc}, ${money(x.amount)}`); });
     });
+}
+
+function woForm(x){
+  if (!x) return;
+  const it = itemById(x.itemId);
+  openSheet(`<h2>Edit write-off</h2>
+    <form>
+      <p class="note">${esc(x.name)}${it ? "" : " · this stock item no longer exists, so stock counts won't change"}</p>
+      <div class="grid2">
+        <label class="f">Date<input name="date" type="date" required value="${esc(x.date)}"></label>
+        <label class="f">Amount written off<div class="uin"><input name="qty" type="number" step="any" min="0" required inputmode="decimal" value="${x.qty ?? ""}"><span class="u">${esc(x.unit || "")}</span></div></label>
+      </div>
+      <label class="f">Reason<select name="reason">${opt(WRITE_OFF, x.reason || "other")}</select></label>
+      <label class="f">Notes<input name="note" value="${esc(x.note)}" placeholder="optional, e.g. clasp broke"></label>
+      ${it ? `<p class="note">Changing the amount adjusts ${esc(it.name)}'s stock count by the difference (now ${esc(fmtQ(it, it.qty))}).</p>` : ""}
+      <div class="actions"><span style="display:flex;gap:8px;flex-wrap:wrap">${delBtn(true)}${it ? `<button type="button" class="btn danger" data-a="armDel" data-restore="1">Delete &amp; return to stock</button>` : ""}</span>
+        <div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
+    </form>`, async fd => {
+      const qty = numOrNull(fd.get("qty")) || 0, old = Number(x.qty) || 0;
+      const diff = Math.round((qty - old) * 10000) / 10000;
+      const unitCost = x.value != null && old ? x.value / old : (it && it.cost != null ? it.cost : null);
+      await S.db.collection("deadstock").doc(x.id).update({date: fd.get("date"), qty, reason: fd.get("reason") || "other", note: (fd.get("note") || "").trim(),
+        value: unitCost != null ? Math.round(unitCost * qty * 100) / 100 : null, ...stamp()});
+      if (it && diff && it.qty != null) await adjustStock([{itemId: it.id, qty: diff}], -1);
+      toast(diff && it ? `Write-off updated. Stock ${diff > 0 ? "reduced" : "increased"} by ${Math.abs(diff)} ${x.unit || ""}` : "Write-off updated");
+      logAct(`edited a write-off of ${x.name}${diff ? `: ${old} → ${qty} ${x.unit || ""}` : ""}`);
+    }, form => bindDelete(form, async restore => {
+      await S.db.collection("deadstock").doc(x.id).delete();
+      if (restore && it && it.qty != null) await adjustStock([{itemId: it.id, qty: Number(x.qty) || 0}], +1);
+      toast(restore ? "Write-off deleted and returned to stock" : "Write-off deleted");
+      logAct(`deleted a write-off of ${x.name}${restore ? " and returned it to stock" : ""}`);
+    }));
 }
 
 function lengthsForm(){
@@ -1513,6 +1545,7 @@ document.addEventListener("click", async ev => {
     case "excel": excelSheet(); break;
     case "lengths": lengthsForm(); break;
     case "newExp": expenseForm(); break;
+    case "editWO": if (S.canWrite) woForm(S.deadstock.find(d => d.id === id)); break;
     case "unarchive": {
       const it = itemById(id); if (!it) break;
       try { await S.db.collection("items").doc(id).update({dead:false, ...stamp()}); toast(`${it.name} is back in stock`); logAct(`restored ${it.name} from the archive`); }
