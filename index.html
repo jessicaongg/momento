@@ -1043,7 +1043,7 @@ function expenseForm(x, preset){
           .concat([...S.items].filter(i => !i.dead || "item:"+i.id === curSrc).sort((a,b)=>a.name.localeCompare(b.name)).map(i => ({v:"item:"+i.id, g:"Stock items", t:i.name})));
         const words = t => norm(t).split(/[^a-z0-9]+/).filter(w => w.length > 1);
         // Common product words match almost everything, so they're ignored unless they're all you typed
-        const COMMON = new Set(["chain","chains","charm","charms","jump","ring","rings","jumpring","jumprings","pendant","pendants","bead","beads",
+        const COMMON = new Set(["chain","chains","charm","charms","pendant","pendants","bead","beads",
           "pc","pcs","piece","pieces","set","pack","mm","cm","the","and","for","with","of","x","order","item","items"]);
         const qwords = t => { const w = words(t); const k = w.filter(x => !COMMON.has(x)); return k.length ? k : w; };
         const score = (t, q) => { const ws = words(t); return q.reduce((a, k) => a + (ws.includes(k) ? 2 : ws.some(w => w.startsWith(k) || (k.startsWith(w) && w.length > 2)) ? 1 : 0), 0); };
