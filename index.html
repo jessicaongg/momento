@@ -847,7 +847,7 @@ function itemForm(it){
       <p class="note">Chains: keep them in metres. When you log a sale and pick a chain, your usual length for that product (Stock → Chain lengths) fills in and comes off stock automatically. The − / + buttons move 10 cm at a time.</p>
       <div class="grid2">
         <label class="f">Cost per unit (S$)<input name="cost" type="number" step="0.01" min="0" inputmode="decimal" value="${e.cost??""}"></label>
-        <div class="f">Supplier link<div class="xl-row"><input type="search" class="linkQ" placeholder="Type to find a link…" aria-label="Find a supplier link" style="flex:1 1 140px"><span class="note linkHint"></span></div><select name="linkId" aria-label="Supplier link">${linkOpts(e.linkId)}</select></div>
+        <div class="f"><span>Supplier link <span class="note linkHint" style="font-weight:400"></span></span><select name="linkId" aria-label="Supplier link">${linkOpts(e.linkId)}</select></div>
       </div>
       <div class="f">Dead stock
         <label class="keep"><input type="checkbox" name="dead" ${e.dead?"checked":""}> Move to archive (dead stock: not selling, no restock alerts)</label>
@@ -881,7 +881,8 @@ function itemForm(it){
       form._connToggle = () => { if (connRow) connRow.hidden = catSel.value !== "charm"; };
       catSel.addEventListener("change", form._connToggle); form._connToggle();
       fillFromLink(form, it);
-      attachSearch({sel: form.querySelector("[name=linkId]"), q: form.querySelector(".linkQ"), hint: form.querySelector(".linkHint"), also: form.querySelector("[name=name]"), list: linkChoices(), empty: "None"});
+      const nameEl = form.querySelector("[name=name]");
+      attachSearch({sel: form.querySelector("[name=linkId]"), q: nameEl, hint: form.querySelector(".linkHint"), list: linkChoices(), empty: "None", initial: nameEl.value});
       bindDelete(form, async () => { await S.db.collection("items").doc(it.id).delete(); toast("Item deleted"); logAct(`deleted stock item ${it.name}`); }); });
 }
 
@@ -1114,12 +1115,14 @@ function expenseForm(x, preset){
 // changed themselves are left alone; on an existing item only empty fields are filled.
 // Type-to-narrow for link pickers. Common product words (chain, charm, pcs, mm...) are ignored
 // unless they're all you typed; favourites come first.
-const COMMON_WORDS = new Set(["chain","chains","charm","charms","pendant","pendants","bead","beads",
+const COMMON_WORDS = new Set(["chain","chains","charm","charms","connector","connectors","pendant","pendants","bead","beads",
   "pc","pcs","piece","pieces","set","pack","mm","cm","the","and","for","with","of","x","order","item","items"]);
-const nameWords = t => norm(t).split(/[^a-z0-9]+/).filter(w => w.length > 1);
+// metal names count the same as their short codes (Sterling silver = SS, etc.)
+const metalCodes = t => norm(t).replace(/sterling\s+silver|\bsilver\b|\b925\b/g, " ss ").replace(/yellow\s+gold/g, " yg ").replace(/rose\s+gold/g, " rg ");
+const nameWords = t => metalCodes(t).split(/[^a-z0-9]+/).filter(w => w.length > 1);
 const queryWords = t => { const w = nameWords(t); const k = w.filter(x => !COMMON_WORDS.has(x)); return k.length ? k : w; };
 const matchScore = (t, q) => { const ws = nameWords(t); return q.reduce((a, k) => a + (ws.includes(k) ? 2 : ws.some(w => w.startsWith(k) || (k.startsWith(w) && w.length > 2)) ? 1 : 0), 0); };
-function attachSearch({sel, q, hint, also, list, empty}){
+function attachSearch({sel, q, hint, also, list, empty, initial}){
   if (!sel || !q) return;
   const rebuild = text => {
     const cur = sel.value, qw = queryWords(text);
@@ -1131,11 +1134,11 @@ function attachSearch({sel, q, hint, also, list, empty}){
     const groups = {}; shown.forEach(o => (groups[o.g] ||= []).push(o));
     sel.innerHTML = `<option value="">${esc(empty)}</option>` + Object.entries(groups).map(([g, os]) =>
       `<optgroup label="${esc(g)}">${os.map(o => `<option value="${o.v}" ${o.v === cur ? "selected" : ""}>${esc(o.t)}</option>`).join("")}</optgroup>`).join("");
-    if (hint) hint.textContent = !qw.length ? "" : none ? "No similar names, showing all" : `${shown.filter(o => o.s > 0).length} similar`;
+    if (hint) hint.textContent = !qw.length ? "" : none ? "· no similar names, showing all" : `· ${shown.filter(o => o.s > 0).length} similar to the name`;
   };
   q.addEventListener("input", () => rebuild(q.value));
   if (also) also.addEventListener("input", () => { if (!q.value && !sel.value) rebuild(also.value); });
-  rebuild("");
+  rebuild(initial || "");
 }
 const linkChoices = () => [...S.links].sort((a,b)=>(b.fav ? 1 : 0) - (a.fav ? 1 : 0) || (a.title||"").localeCompare(b.title||""))
   .map(l => ({v: l.id, g: l.fav ? "★ Favourites" : "Supplier links", t: (l.fav ? "★ " : "") + l.title + (l.shop ? " — " + l.shop : ""), fav: !!l.fav}));
@@ -1310,7 +1313,7 @@ function shopForm(s, preset){
       <label class="f">What to buy<input name="text" required value="${esc(e.text)}" placeholder="e.g. RG jump rings, gift pouches"></label>
       <div class="grid2">
         <label class="f">How much<input name="qty" value="${esc(e.qty)}" placeholder="e.g. 2 m, 50 pcs"></label>
-        <div class="f">Supplier link<div class="xl-row"><input type="search" class="linkQ" placeholder="Type to find a link…" aria-label="Find a supplier link" style="flex:1 1 140px"><span class="note linkHint"></span></div><select name="linkId" aria-label="Supplier link">${linkOpts(e.linkId)}</select></div>
+        <div class="f"><span>Supplier link <span class="note linkHint" style="font-weight:400"></span></span><select name="linkId" aria-label="Supplier link">${linkOpts(e.linkId)}</select></div>
       </div>
       <div class="actions">${delBtn(!!s,"Remove")}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
@@ -1319,7 +1322,8 @@ function shopForm(s, preset){
       else await S.db.collection("shop").doc().set({...data, itemId:e.itemId||"", done:false, by:S.me, who:S.who||"", createdAt:Date.now()});
       toast(s?"Saved":"Added to buy list");
       if (!s) logAct(`added ${data.text} to the buy list`);
-    }, form => { attachSearch({sel: form.querySelector("[name=linkId]"), q: form.querySelector(".linkQ"), hint: form.querySelector(".linkHint"), also: form.querySelector("[name=text]"), list: linkChoices(), empty: "None"});
+    }, form => { const textEl = form.querySelector("[name=text]");
+      attachSearch({sel: form.querySelector("[name=linkId]"), q: textEl, hint: form.querySelector(".linkHint"), list: linkChoices(), empty: "None", initial: textEl.value});
       bindDelete(form, async () => { await S.db.collection("shop").doc(s.id).delete(); toast("Removed"); }); });
 }
 
