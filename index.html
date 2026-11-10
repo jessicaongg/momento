@@ -316,6 +316,12 @@ function stockState(it){
   return "ok";
 }
 const needsRestock = () => S.items.filter(i => !i.dead && ["low","out"].includes(stockState(i)));
+const KARAT = {"":"Not set", "14":"14ct", "18":"18ct", "24":"24ct"};
+// "14K", "14ct", "14 kt", "585" → "14"; "18K", "750" → "18"; "24K", "999" → "24"
+function mapKarat(v){ const t = String(v ?? "").toLowerCase(); const m = t.match(/\b(14|18|24)\s*(k|kt|ct|karat|carat)?\b/); if (m && (m[2] || /^\s*(14|18|24)\s*$/.test(t))) return m[1];
+  if (/\b585\b/.test(t)) return "14"; if (/\b750\b/.test(t)) return "18"; if (/\b(999|24k)\b/.test(t)) return "24"; return ""; }
+const finishFromText = t => { t = String(t || "").toLowerCase(); return /gold[\s-]*filled|\bgf\b/.test(t) ? "filled" : /plated|vermeil/.test(t) ? "plated" : /\bsolid\b/.test(t) ? "solid" : ""; };
+const karatFromText = t => { const m = String(t || "").toLowerCase().match(/\b(14|18|24)\s*(k|kt|ct|karat|carat)\b/); return m ? m[1] : ""; };
 const FINISH = {"":"Not set", solid:"Solid", filled:"Gold filled", plated:"Gold plated"};
 function mapFinish(v){ const t = String(v ?? "").toLowerCase(); return /fill/.test(t) ? "filled" : /plat/.test(t) ? "plated" : /solid/.test(t) ? "solid" : ""; }
 const WRITE_OFF = {damaged:"Damaged", defective:"Defective", lost:"Lost", unsellable:"Won't sell", other:"Other"};
@@ -411,7 +417,7 @@ function itemRow(it, withQty=true){
   const st = stockState(it);
   const pill = it.dead ? `<span class="pill uncounted">Dead stock</span>` : st==="low" ? `<span class="pill low">Low</span>` : st==="out" ? `<span class="pill out">Out</span>` : st==="uncounted" ? `<span class="pill uncounted">Not counted</span>` : "";
   const lines = (it.lines||[]).map(l=>`<span class="pill ${l}">${LINE_SHORT[l]}</span>`).join("");
-  const fin = it.finish ? `<span class="pill fin">${esc(FINISH[it.finish])}</span>` : "";
+  const fin = (it.karat ? `<span class="pill fin">${esc(KARAT[it.karat])}</span> ` : "") + (it.finish ? `<span class="pill fin">${esc(FINISH[it.finish])}</span>` : "");
   const sub = [CAT[it.cat], it.style, it.cost!=null ? money(it.cost)+" / "+(it.unit||"pc") : ""].filter(Boolean).map(esc).join(" · ");
   const q = it.qty==null ? "—" : (Math.round(it.qty*100)/100);
   const shade = !it.dead && (st === "low" || st === "out") ? " due" : (it.linkId && linkById(it.linkId)) ? "" : " nolink";
@@ -485,7 +491,7 @@ function chipset(group, opts, cur){
 function vStock(){
   const f = S.f;
   let items = S.items.filter(i =>
-    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || (f.cat==="connector" ? i.cat==="charm" && !!i.connector : i.cat===f.cat))) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) &&
+    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || (f.cat==="connector" ? i.cat==="charm" && !!i.connector : i.cat===f.cat))) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) && (!f.karat || f.karat==="all" || (i.karat||"")===f.karat) &&
     (f.line==="all"||(i.lines||[]).includes(f.line)) &&
     (!f.q || (i.name+" "+(i.style||"")+" "+(i.notes||"")).toLowerCase().includes(f.q.toLowerCase())));
   const order = {chain:0,jumpring:1,charm:2,findings:3,other:4};
@@ -497,6 +503,7 @@ function vStock(){
       ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["findings","Findings"],["other","Other"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["YG","YG","YG"],["SS","SS","SS"],["RG","RG","RG"]],f.metal)}
       ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],f.finish||"all")}
+      ${chipset("karat",[["all","All karats"],["14","14ct"],["18","18ct"],["24","24ct"]],f.karat||"all")}
       ${chipset("line",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],f.line)}
     </div>
     ${f.cat === "dead" ? `<p class="note">The archive keeps dead stock out of your main list and restock alerts. Tap Restore to bring an item back, or open it to write off more pieces.</p>`
@@ -541,7 +548,7 @@ function vSales(){
 
 function guessCat(t){ t = (t||"").toLowerCase(); return /jump ?ring/.test(t) ? "jumpring" : /chain/.test(t) ? "chain" : /charm|pendant|birthstone/.test(t) ? "charm" : /finding|clasp|lobster|connector|bail|ear ?wire|earring hook|crimp|end cap|spring ring|toggle|key ?ring|split ring/.test(t) ? "findings" : "other"; }
 function newItemFromLink(link, qty, unit, sgd){
-  return {name: link.title, cat: link.connector ? "charm" : guessCat(link.title), metal: link.metal || "", finish: link.finish || "",
+  return {name: link.title, cat: link.connector ? "charm" : guessCat(link.title), metal: link.metal || "", finish: link.finish || "", karat: link.karat || karatFromText(link.title),
     connector: !!link.connector || (/connector/i.test(link.title || "") && guessCat(link.title) === "charm"), style: "", lines: (link.lines && link.lines.length) ? link.lines : ["pj"],
     qty, unit: unit || "pcs", lowAt: null, cost: qty && sgd ? Math.round(sgd / qty * 100) / 100 : null, linkId: link.id, notes: "", photo: link.photo || "", ...stamp()};
 }
@@ -570,7 +577,7 @@ async function deliver(expId){
   const {link, item} = stockTarget(x);
   let itemId = "", made = false;
   if (item) { itemId = item.id; await adjustStock([{itemId, qty}], +1); }
-  else if (link) { const r = S.db.collection("items").doc(); itemId = r.id; made = true; await r.set({...newItemFromLink(link, qty, x.unit || "pcs", x.amount), photo: link.photo || x.photo || "", finish: x.finish || link.finish || ""}); }
+  else if (link) { const r = S.db.collection("items").doc(); itemId = r.id; made = true; await r.set({...newItemFromLink(link, qty, x.unit || "pcs", x.amount), photo: link.photo || x.photo || "", finish: x.finish || link.finish || "", karat: x.karat || link.karat || karatFromText(link.title)}); }
   else return null;
   await S.db.collection("expenses").doc(expId).update({delivered:true, deliveredAt:Date.now(), itemId});
   const it = itemById(itemId) || {unit: x.unit};
@@ -581,7 +588,7 @@ async function deliver(expId){
 function expRow(x){
   const {link, item} = stockTarget(x);
   const pend = isPending(x);
-  const sub = [fmtDate(x.date), EXP_CAT[x.cat], x.finish ? FINISH[x.finish] : "", x.who ? "paid by "+x.who : "", x.pay, x.shop].filter(Boolean).map(esc).join(" · ");
+  const sub = [fmtDate(x.date), EXP_CAT[x.cat], x.karat ? KARAT[x.karat] : "", x.finish ? FINISH[x.finish] : "", x.who ? "paid by "+x.who : "", x.pay, x.shop].filter(Boolean).map(esc).join(" · ");
   const stockLine = isDelivered(x) && item && x.qty ? `Added to stock: ${fmtQ(item, x.qty)} of ${item.name}`
     : pend ? `On the way: ${x.qty} ${x.unit || item?.unit || ""} of ${item?.name || link?.title || "stock"}` : "";
   const disc = Number(x.discount) > 0 ? `Saved ${fmtCur(x.discount, x.currency)}${x.discountFor ? " (" + x.discountFor + ")" : ""}` : "";
@@ -719,7 +726,7 @@ function vLinks(){
   const q = (S.lq||"").toLowerCase();
   const lf = S.f.lline || "all";
   const favOnly = S.f.lfav === "fav";
-  const list = S.links.filter(l => (!q || [l.title,l.shop,l.specs,l.notes,l.url].join(" ").toLowerCase().includes(q)) && (lf === "all" || (l.lines||[]).includes(lf)) && (!favOnly || l.fav) && (!S.f.lfin || S.f.lfin === "all" || (l.finish||"") === S.f.lfin))
+  const list = S.links.filter(l => (!q || [l.title,l.shop,l.specs,l.notes,l.url].join(" ").toLowerCase().includes(q)) && (lf === "all" || (l.lines||[]).includes(lf)) && (!favOnly || l.fav) && (!S.f.lfin || S.f.lfin === "all" || (l.finish||"") === S.f.lfin) && (!S.f.lkar || S.f.lkar === "all" || (l.karat||"") === S.f.lkar))
     .sort((a,b)=>(b.fav ? 1 : 0) - (a.fav ? 1 : 0) || (a.title||"").localeCompare(b.title||""));
   const rows = list.map(l => {
     const u = safeUrl(l.url); const its = S.items.filter(i=>i.linkId===l.id);
@@ -727,7 +734,7 @@ function vLinks(){
     return `<div class="row" style="align-items:flex-start">
       ${thumb(l.photo, l.metal, l.title)}
       <div class="main">
-        <div class="title"><button type="button" class="fav" data-a="favLink" data-id="${l.id}" aria-pressed="${!!l.fav}" aria-label="${l.fav ? "Remove from" : "Add to"} favourites" ${S.canWrite ? "" : "disabled"}>${l.fav ? "★" : "☆"}</button>${esc(l.title)} ${(l.lines||[]).map(x=>`<span class="pill ${x}">${LINE_SHORT[x]}</span>`).join("")}${l.finish ? ` <span class="pill fin">${esc(FINISH[l.finish])}</span>` : ""}${l.connector ? ` <span class="pill fin">Connector</span>` : ""}${S.expenses.some(e => isPending(e) && e.linkId === l.id) ? ` <span class="pill low">On the way</span>` : ""}</div>
+        <div class="title"><button type="button" class="fav" data-a="favLink" data-id="${l.id}" aria-pressed="${!!l.fav}" aria-label="${l.fav ? "Remove from" : "Add to"} favourites" ${S.canWrite ? "" : "disabled"}>${l.fav ? "★" : "☆"}</button>${esc(l.title)} ${(l.lines||[]).map(x=>`<span class="pill ${x}">${LINE_SHORT[x]}</span>`).join("")}${l.karat ? ` <span class="pill fin">${esc(KARAT[l.karat])}</span>` : ""}${l.finish ? ` <span class="pill fin">${esc(FINISH[l.finish])}</span>` : ""}${l.connector ? ` <span class="pill fin">Connector</span>` : ""}${S.expenses.some(e => isPending(e) && e.linkId === l.id) ? ` <span class="pill low">On the way</span>` : ""}</div>
         <div class="sub">${meta}</div>
         ${u?`<div class="sub"><a class="ext" href="${esc(u)}" target="_blank" rel="noopener">${esc(host(u)||u)}</a></div>`:""}
         ${l.specs?`<div class="specs">${esc(l.specs)}</div>`:""}
@@ -746,6 +753,7 @@ function vLinks(){
     ${chipset("lline",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],lf)}
     ${chipset("lfav",[["all","All links"],["fav","★ Favourites"]],S.f.lfav||"all")}
     ${chipset("lfin",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],S.f.lfin||"all")}
+    ${chipset("lkar",[["all","All karats"],["14","14ct"],["18","18ct"],["24","24ct"]],S.f.lkar||"all")}
     <p class="note">Save where you buy each supply and its exact specs (metal, gauge, chain style, length, pack size), so either of you can reorder the same thing.</p>
     <div class="list">${loading("links") || (list.length ? rows : `<div class="empty">${S.links.length?"No links match.":"No links yet. Add the shop listing for a chain or charm with “Add link”."}</div>`)}</div>
   </section>`;
@@ -833,7 +841,10 @@ function itemForm(it){
         <label class="f">Type<select name="cat">${opt(CAT,e.cat)}</select></label>
         <label class="f">Metal<select name="metal">${opt(METAL,e.metal)}</select></label>
       </div>
-      <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
+      <div class="grid2">
+        <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
+        <label class="f">Gold karat<select name="karat">${opt(KARAT,e.karat||"")}</select></label>
+      </div>
       <label class="keep connRow"><input type="checkbox" name="connector" ${e.connector?"checked":""}> Connector charm (joins two ends of a chain)</label>
       <label class="f">Style / details<input name="style" value="${esc(e.style)}" placeholder="e.g. double-sided, birthstone, paperclip chain, 4mm"></label>
       <div class="f" style="font-size:.8rem;font-weight:600;color:var(--muted)">Used for
@@ -860,7 +871,7 @@ function itemForm(it){
       <div class="actions">${delBtn(!!it)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const lines = ["pj","kc","un"].filter(k=>fd.get(k));
-      const data = {name:fd.get("name").trim(), cat:fd.get("cat"), metal:fd.get("metal"), finish:fd.get("finish")||"", connector: fd.get("cat") === "charm" && !!fd.get("connector"), style:fd.get("style").trim(), lines,
+      const data = {name:fd.get("name").trim(), cat:fd.get("cat"), metal:fd.get("metal"), finish:fd.get("finish")||finishFromText(fd.get("name")), karat:fd.get("karat")||karatFromText(fd.get("name")), connector: fd.get("cat") === "charm" && !!fd.get("connector"), style:fd.get("style").trim(), lines,
         qty:numOrNull(fd.get("qty")), unit:fd.get("unit"), lowAt:numOrNull(fd.get("lowAt")), cost:numOrNull(fd.get("cost")),
         linkId:fd.get("linkId")||"", notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
       data.dead = !!fd.get("dead");
@@ -1007,6 +1018,7 @@ function expenseForm(x, preset){
         <label class="f">Item<input name="desc" required value="${esc(e.desc)}" placeholder="e.g. 5 m SS chain, welder"></label>
         <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
       </div>
+      <label class="f">Gold karat<select name="karat">${opt(KARAT,e.karat||"")}</select></label>
       <div class="grid2">
         <label class="f">Type<select name="cat" id="expCat">${opt(EXP_CAT,e.cat)}</select></label>
         <label class="f">Paid by<select name="who">${PAYERS.map(p=>`<option ${p===(e.who||S.who)?"selected":""}>${p}</option>`).join("")}</select></label>
@@ -1032,7 +1044,7 @@ function expenseForm(x, preset){
       const net = Math.round((listIn - disc) * 100) / 100;
       let rate = 1;
       if (cur !== "SGD") { rate = numOrNull(fd.get("rate")); if (!rate) { try { rate = await getRate(cur, fd.get("date")); } catch(err) { throw {code:"fx"}; } } }
-      const data = {date:fd.get("date"), amount:Math.round(net*rate*100)/100, currency:cur, listPrice:listIn, discount:disc, discountFor:(fd.get("discountFor")||"").trim(), finish:fd.get("finish")||"",
+      const data = {date:fd.get("date"), amount:Math.round(net*rate*100)/100, currency:cur, listPrice:listIn, discount:disc, discountFor:(fd.get("discountFor")||"").trim(), finish:fd.get("finish")||"", karat:fd.get("karat")||"",
         origAmount:net, rate, desc:fd.get("desc").trim(), cat:fd.get("cat"),
         who:fd.get("who")||"", pay:fd.get("pay"), shop:fd.get("shop").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||""};
       if (!delivered) {
@@ -1090,6 +1102,7 @@ function expenseForm(x, preset){
           if (!d.value) d.value = link.title;
           if (!sh.value) sh.value = link.shop || host(link.url) || "";
           const fin = form.querySelector("[name=finish]"); if (fin && !fin.value && link.finish) fin.value = link.finish;
+          const kar = form.querySelector("[name=karat]"); const lk = link.karat || karatFromText(link.title); if (kar && !kar.value && lk) kar.value = lk;
           if (link.priceCur && link.priceCur !== "SGD" && curSel.value === "SGD" && !amtEl.value) { curSel.value = link.priceCur; delete rateIn.dataset.manual; fetchFx(); }
           const ph = form.querySelector("[name=photo]");
           if (link.photo && !ph.value) { ph.value = link.photo; form.querySelector(".thumb.big").innerHTML = `<img src="${esc(photoSrc(link.photo))}" alt="">`; const rm = form.querySelector("#phRemove"); if (rm) rm.hidden = false; }
@@ -1158,6 +1171,7 @@ const specsLine = l => { const t = String(l.specs || "").split(/\n+/).map(x => x
 async function connectLinkToItem(link, item){
   const patch = {linkId: link.id}, got = [];
   if (!item.finish && link.finish) { patch.finish = link.finish; got.push("finish"); }
+  const lk = link.karat || karatFromText(link.title); if (!item.karat && lk) { patch.karat = lk; got.push("karat"); }
   if (!item.style && link.specs) { patch.style = specsLine(link); got.push("details"); }
   if (item.cost == null || item.cost === "") { const c = await linkUnitCost(link, item.unit || "pcs"); if (c != null) { patch.cost = c; got.push("cost per unit"); } }
   if (!item.photo && link.photo) { patch.photo = link.photo; got.push("photo"); }
@@ -1166,6 +1180,7 @@ async function connectLinkToItem(link, item){
   const lp = {};
   if (!link.metal && item.metal) lp.metal = item.metal;
   if (!link.finish && item.finish) lp.finish = item.finish;
+  if (!link.karat && item.karat) lp.karat = item.karat;
   if (!(link.lines || []).length && (item.lines || []).length) lp.lines = item.lines;
   if (!link.photo && item.photo) lp.photo = item.photo;
   if (Object.keys(lp).length) await S.db.collection("links").doc(link.id).update(lp);
@@ -1187,12 +1202,16 @@ function fillFromLink(form, it){
       if (set("cat", cat)) filled.push("type");
       if (set("metal", l.metal)) filled.push("metal");
       if (set("finish", l.finish)) filled.push("finish");
+      if (set("karat", l.karat || karatFromText(l.title))) filled.push("karat");
       const isConn = !!l.connector || (/connector/i.test(l.title || "") && cat === "charm");
       if (isConn && el("connector") && !el("connector").dataset.touched) { el("connector").checked = true; if (!el("cat").dataset.touched) el("cat").value = "charm"; filled.push("connector"); }
       form._connToggle && form._connToggle();
       if (set("unit", cat === "chain" ? "m" : "pcs")) filled.push("unit");
       if (l.lines && l.lines.length && !["pj","kc","un"].some(k => el(k)?.dataset.touched)) { ["pj","kc","un"].forEach(k => { if (el(k)) el(k).checked = l.lines.includes(k); }); filled.push("used for"); }
-    } else if (!it.finish && set("finish", l.finish, true)) filled.push("finish");
+    } else {
+      if (!it.finish && set("finish", l.finish, true)) filled.push("finish");
+      if (!it.karat && set("karat", l.karat || karatFromText(l.title), true)) filled.push("karat");
+    }
     // details: the link's specifications, one line
     const specs = specsLine(l);
     if (specs && set("style", specs, true)) filled.push("details");
@@ -1266,7 +1285,10 @@ function linkForm(l){
         <label class="f">Shop / supplier<input name="shop" value="${esc(e.shop)}" placeholder="e.g. Taobao, Etsy shop name"></label>
         <label class="f">Metal<select name="metal">${opt(METAL,e.metal)}</select></label>
       </div>
-      <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
+      <div class="grid2">
+        <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
+        <label class="f">Gold karat<select name="karat">${opt(KARAT,e.karat||"")}</select></label>
+      </div>
       <label class="keep"><input type="checkbox" name="connector" ${e.connector?"checked":""}> Connector charm (joins two ends of a chain)</label>
       <div class="f">Connect to a stock item (optional)
         <div class="xl-row"><input type="search" class="itemQ" placeholder="Type to find a stock item…" aria-label="Find a stock item" style="flex:1 1 140px"><span class="note itemHint"></span></div>
@@ -1287,7 +1309,7 @@ function linkForm(l){
       <div class="actions">${delBtn(!!l)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
       const url = fd.get("url").trim();
-      const data = {title:fd.get("title").trim(), url, connector: !!fd.get("connector"), lines:["pj","kc","un"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), finish:fd.get("finish")||"", price:numOrNull(fd.get("price")), priceCur:fd.get("priceCur")||"SGD",
+      const data = {title:fd.get("title").trim(), url, connector: !!fd.get("connector"), lines:["pj","kc","un"].filter(k=>fd.get(k)), shop:fd.get("shop").trim(), metal:fd.get("metal"), finish:fd.get("finish")||finishFromText(fd.get("title")), karat:fd.get("karat")||karatFromText(fd.get("title")), price:numOrNull(fd.get("price")), priceCur:fd.get("priceCur")||"SGD",
         pack:fd.get("pack").trim(), specs:fd.get("specs").trim(), notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
       const ref = l ? S.db.collection("links").doc(l.id) : S.db.collection("links").doc();
       if (!l) data.createdAt = Date.now();
@@ -1349,9 +1371,9 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
   s.onerror = () => { xlsxP = null; rej(new Error("load")); };
   document.head.appendChild(s);
 });
-const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish","Connector"];
-const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish","Favourite","Connector"];
-const EXP_COLS = ["ID","Date","Type","Item","Product link","Qty received","Unit","Delivered","Amount","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes","Finish"];
+const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish","Connector","Karat"];
+const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish","Favourite","Connector","Karat"];
+const EXP_COLS = ["ID","Date","Type","Item","Product link","Qty received","Unit","Delivered","Amount","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes","Finish","Karat"];
 const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Discount (S$)","Discount for","Paid (S$)","Payment","Customer / event","Materials used","Sold by"];
 const HELP = [
   "momento.co stock book spreadsheet", "Co-owned by Jessica & Valerie", "",
@@ -1365,6 +1387,7 @@ const HELP = [
   "Metal: YG, SS, RG, Mixed (or blank)",
   "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
   "Connector (Stock and Links): Yes for connector charms that join two ends of a chain.",
+  "Karat (Stock, Links and Expenses): 14ct, 18ct or 24ct (or blank). 14K / 585 and 18K / 750 also work.",
   "Used for: PJ, Keychain, Both or Unsure",
   "Unit: m, cm, pcs, inch, ft. Keep chains in m (metres).",
   "Dead stock (Stock sheet): Yes moves the item to the Archive (no restock alerts). To write off damaged or lost pieces, use the item's edit screen in the app.",
@@ -1391,18 +1414,18 @@ async function buildWorkbook(){
   const stock = [...S.items].sort((a,b)=>(order[a.cat]-order[b.cat]) || a.name.localeCompare(b.name)).map(i => ({
     "ID":i.id, "Name":i.name, "Type":CAT[i.cat]||"", "Metal":metalText(i.metal), "Style / details":i.style||"", "Used for":linesText(i.lines),
     "In stock":i.qty ?? "", "Unit":i.unit||"", "Restock at":i.lowAt ?? "", "Cost per unit (S$)":i.cost ?? "",
-    "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||"", "Dead stock": i.dead ? "Yes" : "", "Finish": i.finish ? FINISH[i.finish] : "", "Connector": i.connector ? "Yes" : ""}));
+    "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||"", "Dead stock": i.dead ? "Yes" : "", "Finish": i.finish ? FINISH[i.finish] : "", "Connector": i.connector ? "Yes" : "", "Karat": i.karat ? KARAT[i.karat] : ""}));
   const links = [...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l => ({
     "ID":l.id, "Product name":l.title||"", "Link":l.url||"", "Shop":l.shop||"", "Metal":metalText(l.metal), "Used for":linesText(l.lines),
-    "Price":l.price ?? "", "Currency":l.priceCur || "SGD", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||"", "Photo":l.photo ? photoSrc(l.photo) : "", "Finish": l.finish ? FINISH[l.finish] : "", "Favourite": l.fav ? "Yes" : "", "Connector": l.connector ? "Yes" : ""}));
+    "Price":l.price ?? "", "Currency":l.priceCur || "SGD", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||"", "Photo":l.photo ? photoSrc(l.photo) : "", "Finish": l.finish ? FINISH[l.finish] : "", "Favourite": l.fav ? "Yes" : "", "Connector": l.connector ? "Yes" : "", "Karat": l.karat ? KARAT[l.karat] : ""}));
   const sales = [...S.sales].sort(bySaleDesc).map(s => ({
     "Date":s.date||"", "Line":LINE[s.line]||"", "Product":s.product||"", "Details":s.desc||"", "Price (S$)":s.listPrice ?? (Number(s.price)||0), "Discount (S$)":s.discount || "", "Discount for":s.discountFor || "", "Paid (S$)":Number(s.price)||0,
     "Payment":s.pay||"", "Customer / event":s.customer||"",
     "Materials used":(s.used||[]).map(u => { const it = itemById(u.itemId); return it ? fmtUse(it,u.qty)+" "+it.name : null; }).filter(Boolean).join(", "),
     "Sold by": s.who || (!s.by ? "" : s.by === S.me ? (S.myName || "") : nameOf(s.by))}));
   const add = (rows, cols, widths, name) => { const ws = X.utils.json_to_sheet(rows, {header:cols}); ws["!cols"] = widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb, ws, name); };
-  add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30,10,12,11], "Stock");
-  add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30,40,12,10,11], "Links");
+  add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30,10,12,11,8], "Stock");
+  add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30,40,12,10,11,8], "Links");
   const exps = [...S.expenses].sort(bySaleDesc).map(x => {
     const {link, item} = stockTarget(x);
     return {"ID":x.id, "Date":x.date||"", "Type":EXP_CAT[x.cat]||"", "Item":x.desc||"",
@@ -1410,9 +1433,9 @@ async function buildWorkbook(){
       "Delivered": x.qty && (x.linkId || x.itemId) ? (isDelivered(x) ? "Yes" : "No") : "",
       "Amount": x.listPrice ?? x.origAmount ?? (Number(x.amount)||0), 
       "Currency": x.currency || "SGD", "Paid (S$)": Number(x.amount)||0,
-      "Paid by":x.who||"", "Payment":x.pay||"", "Shop / supplier":x.shop||"", "Notes":x.notes||"", "Finish": x.finish ? FINISH[x.finish] : ""};
+      "Paid by":x.who||"", "Payment":x.pay||"", "Shop / supplier":x.shop||"", "Notes":x.notes||"", "Finish": x.finish ? FINISH[x.finish] : "", "Karat": x.karat ? KARAT[x.karat] : ""};
   });
-  add(exps, EXP_COLS, [22,11,22,36,32,11,6,10,11,9,12,10,10,20,30,12], "Expenses");
+  add(exps, EXP_COLS, [22,11,22,36,32,11,6,10,11,9,12,10,10,20,30,12,8], "Expenses");
   add(sales, SALES_COLS, [11,20,16,36,10,12,20,10,10,18,42,14], "Sales");
   if (S.deadstock.length) add([...S.deadstock].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(x => ({"Date":x.date||"", "Item":x.name||"", "Qty":x.qty, "Unit":x.unit||"",
     "Reason":WRITE_OFF[x.reason]||"", "Value at cost (S$)":x.value ?? "", "By":x.who||""})), ["Date","Item","Qty","Unit","Reason","Value at cost (S$)","By"], [11,36,8,6,14,16,10], "Dead stock");
@@ -1574,7 +1597,7 @@ async function planImport(file){
     }
     const data = {date, amount: sgd, currency: cur, listPrice: list, discount: disc, discountFor: txt(pick(r,"discount for")), origAmount: net, rate,
       desc: desc || "Expense", cat: mapExpCat(pick(r,"type","category"), ex?.cat), who,
-      pay: txt(pick(r,"payment")), shop: txt(pick(r,"shop / supplier","shop","supplier")), notes: txt(pick(r,"notes")), finish: mapFinish(pick(r,"finish"))};
+      pay: txt(pick(r,"payment")), shop: txt(pick(r,"shop / supplier","shop","supplier")), notes: txt(pick(r,"notes")), finish: mapFinish(pick(r,"finish")), karat: mapKarat(pick(r,"karat","carat","ct"))};
     const linkIn = txt(pick(r,"product link")), qtyIn = numCell(pick(r,"qty received","qty","quantity")), unitIn = txt(pick(r,"unit"));
     const delIn = norm(pick(r,"delivered")), saysYes = /^(y|yes|true|1|delivered|done)$/.test(delIn);
     if (!(ex && isDelivered(ex))) {
@@ -1603,7 +1626,7 @@ async function planImport(file){
     if (idIn && !ex) plan.warnings.push(`Links row ${i+2}: ID “${idIn}” isn't in the app, so it was added as new.`);
     const url = txt(pick(r,"link","url"));
     if (url && !safeUrl(url)) plan.warnings.push(`Links row ${i+2}: the link should start with https://`);
-    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), finish:mapFinish(pick(r,"finish")),
+    const data = {title, url, shop:txt(pick(r,"shop","supplier")), metal:mapMetal(pick(r,"metal")), finish:mapFinish(pick(r,"finish")), karat:mapKarat(pick(r,"karat","carat","ct")),
       connector: /^(y|yes|true|1|connector)$/.test(norm(pick(r,"connector"))), fav: /^(y|yes|true|1|★|fav|favourite|favorite)$/.test(norm(pick(r,"favourite","favorite"))), lines:mapLines(pick(r,"used for"), ex?.lines || []), price:numCell(pick(r,"price")), priceCur:curCode(pick(r,"currency")) || "SGD",
       pack:txt(pick(r,"pack size","pack")), specs:txt(pick(r,"specifications","specs")), notes:txt(pick(r,"notes"))};
     const id = ex ? ex.id : S.db.collection("links").doc().id;
@@ -1633,7 +1656,7 @@ async function planImport(file){
       style:txt(pick(r,"style / details","style","details")), lines:mapLines(pick(r,"used for"), ex?.lines),
       qty:numCell(pick(r,"in stock","qty","quantity")), unit:mapUnit(pick(r,"unit"), ex?.unit), lowAt:numCell(pick(r,"restock at")),
       cost:numCell(pick(r,"cost per unit","cost")), linkId, notes:txt(pick(r,"notes")),
-      dead: /^(y|yes|true|1|dead)$/.test(norm(pick(r,"dead stock"))), finish: mapFinish(pick(r,"finish")),
+      dead: /^(y|yes|true|1|dead)$/.test(norm(pick(r,"dead stock"))), finish: mapFinish(pick(r,"finish")), karat: mapKarat(pick(r,"karat","carat","ct")),
       connector: /^(y|yes|true|1|connector)$/.test(norm(pick(r,"connector")))};
     if (data.connector && data.cat !== "charm") data.connector = false;
     const id = ex ? ex.id : S.db.collection("items").doc().id;
