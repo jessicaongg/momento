@@ -242,6 +242,7 @@ const PRODUCTS = {pj:["Bracelet","Anklet","Necklace","Ring","Other"], kc:["Bottl
 const PAY = ["PayNow","Cash","Card","PayLah","Other"];
 // Starting estimates for chain used per piece (cm); editable in the app under Stock → Chain lengths.
 const PEOPLE = ["Jessica","Valerie"];
+const PAYERS = [...PEOPLE, "Both"];   // "Both" = split 50/50 when paid, so it doesn't change who owes whom
 const EXP_CAT = {stock:"Stock & supplies", onetime:"One-time / equipment", admin:"Admin & fees", marketing:"Packaging & marketing", other:"Other"};
 // Currencies the app can convert to SGD (rates from the European Central Bank via frankfurter.dev).
 const CURS = {SGD:"S$", USD:"US$", MYR:"RM", CNY:"CN¥", EUR:"€", GBP:"£", AUD:"A$", HKD:"HK$", JPY:"JP¥", KRW:"₩", THB:"฿", IDR:"Rp", PHP:"₱", INR:"₹"};
@@ -283,8 +284,8 @@ const LEN_KEYS =["Bracelet","Anklet","Necklace","Ring","Bottle keychain","Keycha
 const DEFAULT_LEN = {Bracelet:17, Anklet:24, Necklace:45, Ring:6, "Bottle keychain":12, Keychain:12};
 
 const S = {
-  items:[], sales:[], links:[], shop:[], activity:[], expenses:[], deadstock:[], who:"",
-  loaded:{items:false,sales:false,links:false,shop:false,activity:false,expenses:false,deadstock:false},
+  items:[], sales:[], links:[], shop:[], activity:[], expenses:[], deadstock:[], settle:[], who:"",
+  loaded:{items:false,sales:false,links:false,shop:false,activity:false,expenses:false,deadstock:false,settle:false},
   ef:{month:"all",cat:"all",who:"all"},
   tab:"overview", f:{cat:"all",metal:"all",line:"all",q:""}, sf:{month:"all",line:"all",who:"all"},
   canWrite:true, me:null, names:{}, db:null, user:null, lengths:{...DEFAULT_LEN}
@@ -592,6 +593,58 @@ function expRow(x){
   </div>`;
 }
 
+// Running tab between the two of you. Every expense is shared 50/50:
+// whoever paid alone is owed half by the other; "Both" splits on the spot. Paybacks reduce what's owed.
+function tabBalance(){
+  const [A, B] = PEOPLE;
+  const paid = Object.fromEntries(PAYERS.map(p => [p, sumAmt(S.expenses.filter(x => x.who === p))]));
+  const backTo = p => S.settle.filter(x => x.to === p).reduce((a, x) => a + (Number(x.amount) || 0), 0);
+  // positive: B owes A
+  const owed = Math.round(((paid[A] - paid[B]) / 2 - backTo(A) + backTo(B)) * 100) / 100;
+  return {A, B, paid, owed, debtor: owed > 0 ? B : A, creditor: owed > 0 ? A : B, amount: Math.abs(owed), even: Math.abs(owed) < 0.005,
+    paybacks: [...S.settle].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0))};
+}
+function tabBox(t){
+  const line = t.even ? "You're even. Nobody owes anything." : `${t.debtor} owes ${t.creditor} ${money(t.amount)}.`;
+  return `<div class="settle">
+    <h3 style="margin:0">Tab between you</h3>
+    <div class="people num">${PAYERS.map(p => `<span><b>${p === "Both" ? "Both (split)" : p}</b> paid ${money(t.paid[p])}</span>`).join("")}<span><b>Total</b> ${money(sumAmt(S.expenses))}</span></div>
+    <p style="margin:2px 0 0;font-weight:700;font-size:1.02rem" class="num">${esc(line)}</p>
+    <p class="note">Every expense is shared 50/50. Whoever paid alone is owed half by the other; "Both" means you split it when you paid. Paybacks bring the balance down.</p>
+    ${S.canWrite ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn small primary" data-a="newPayback">Settle up</button></div>` : ""}
+    ${t.paybacks.length ? `<details><summary class="note" style="cursor:pointer">Paybacks (${t.paybacks.length})</summary>
+      <div class="list" style="margin-top:8px">${t.paybacks.slice(0, 50).map(x => `<div class="row${S.canWrite ? " clickable" : ""}" ${S.canWrite ? `data-a="editPayback" data-id="${x.id}" role="button" tabindex="0"` : ""}>
+        <div class="main"><div class="title">${esc(x.from)} paid ${esc(x.to)} back</div><div class="sub">${esc([fmtDate(x.date), x.note].filter(Boolean).join(" · "))}</div></div>
+        <div class="end"><span class="money">${money(x.amount)}</span></div></div>`).join("")}</div></details>` : ""}
+  </div>`;
+}
+function paybackForm(x){
+  const t = tabBalance();
+  const e = x || {date: today(), from: t.even ? PEOPLE[1] : t.debtor, to: t.even ? PEOPLE[0] : t.creditor, amount: t.even ? "" : t.amount};
+  openSheet(`<h2>${x ? "Edit payback" : "Settle up"}</h2>
+    <form>
+      ${x ? "" : `<p class="note">${esc(t.even ? "You're even right now. You can still record a payment between you." : `${t.debtor} owes ${t.creditor} ${money(t.amount)}. The amount is filled in; change it for a part payment.`)}</p>`}
+      <div class="grid2">
+        <label class="f">Who paid<select name="from">${PEOPLE.map(p => `<option ${p === e.from ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+        <label class="f">Paid to<select name="to">${PEOPLE.map(p => `<option ${p === e.to ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+      </div>
+      <div class="grid2">
+        <label class="f">Amount (S$)<input name="amount" type="number" step="0.01" min="0" required inputmode="decimal" value="${e.amount ?? ""}"></label>
+        <label class="f">Date<input name="date" type="date" required value="${esc(e.date)}"></label>
+      </div>
+      <label class="f">Notes<input name="note" value="${esc(e.note)}" placeholder="optional, e.g. PayNow"></label>
+      <p class="note">Paybacks only change the tab between you. They don't count as business expenses.</p>
+      <div class="actions">${delBtn(!!x)}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
+    </form>`, async fd => {
+      const data = {from: fd.get("from"), to: fd.get("to"), amount: Math.round((numOrNull(fd.get("amount")) || 0) * 100) / 100, date: fd.get("date"), note: (fd.get("note") || "").trim()};
+      if (data.from === data.to) throw {code: "same"};
+      if (x) await S.db.collection("settle").doc(x.id).update({...data, ...stamp()});
+      else await S.db.collection("settle").doc().set({...data, who: S.who || "", createdAt: Date.now()});
+      toast(x ? "Payback updated" : "Payback recorded");
+      logAct(`${x ? "edited a payback" : "recorded a payback"}: ${data.from} paid ${data.to} ${money(data.amount)}`);
+    }, form => bindDelete(form, async () => { await S.db.collection("settle").doc(x.id).delete(); toast("Payback deleted"); logAct(`deleted a payback: ${x.from} paid ${x.to} ${money(x.amount)}`); }));
+}
+
 function vExpenses(){
   const f = S.ef;
   const months = [...new Set(S.expenses.map(x=>monthKey(x.date)))].sort().reverse();
@@ -602,21 +655,15 @@ function vExpenses(){
     return `<div class="monthhead"><span>${esc(monthLabel(k))}</span><span class="num">${g.length} item${g.length===1?"":"s"} · ${money(sumAmt(g))}</span></div>` + g.map(expRow).join("");
   }).join("");
   const byCat = Object.entries(EXP_CAT).map(([k,l]) => [l, sumAmt(list.filter(x=>x.cat===k))]).filter(([,v]) => v > 0);
-  const paid = Object.fromEntries(PEOPLE.map(p => [p, sumAmt(S.expenses.filter(x=>x.who===p))]));
-  const diff = (paid[PEOPLE[0]] - paid[PEOPLE[1]]) / 2;
-  const settle = Math.abs(diff) < 0.005 ? "You've each paid the same so far."
-    : `To split costs 50/50, ${diff>0?PEOPLE[1]:PEOPLE[0]} owes ${diff>0?PEOPLE[0]:PEOPLE[1]} ${money(Math.abs(diff))}.`;
+  const tab = tabBalance();
   return `<section>
     <div class="sec-head"><h2>Expenses</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newExp","Add expense")}</div></div>
-    ${S.expenses.length ? `<div class="settle">
-      <h3 style="margin:0">Who has paid (all time)</h3>
-      <div class="people num">${PEOPLE.map(p=>`<span><b>${p}</b> ${money(paid[p])}</span>`).join("")}<span><b>Total</b> ${money(sumAmt(S.expenses))}</span></div>
-      <p class="note">${esc(settle)}</p></div>` : ""}
+    ${S.expenses.length || S.settle.length ? tabBox(tab) : ""}
     ${(() => { const p = S.expenses.filter(isPending).sort(bySaleDesc); return p.length ? `<h3>Waiting for delivery</h3><div class="list">${p.map(expRow).join("")}</div><h3>All expenses</h3>` : ""; })()}
     <div class="grid3">
       <label class="f">Month<select id="efMonth"><option value="all">All months</option>${months.map(m=>`<option value="${m}" ${f.month===m?"selected":""}>${esc(monthLabel(m))}</option>`).join("")}</select></label>
       <label class="f">Type<select id="efCat"><option value="all">All types</option>${Object.entries(EXP_CAT).map(([k,l])=>`<option value="${k}" ${f.cat===k?"selected":""}>${esc(l)}</option>`).join("")}</select></label>
-      <label class="f">Paid by<select id="efWho"><option value="all">Both of you</option>${PEOPLE.map(p=>`<option ${f.who===p?"selected":""}>${p}</option>`).join("")}</select></label>
+      <label class="f">Paid by<select id="efWho"><option value="all">Anyone</option>${PAYERS.map(p=>`<option ${f.who===p?"selected":""}>${p}</option>`).join("")}</select></label>
     </div>
     <p class="note num">${list.length} shown · total ${money(sumAmt(list))}${byCat.length ? " · " + byCat.map(([l,v])=>`${esc(l)} ${money(v)}`).join(" · ") : ""}</p>
     <div class="list">${loading("expenses") || (list.length ? body : `<div class="empty">${S.expenses.length ? "No expenses match these filters." : "No expenses yet. Add what you've spent so far, like chain and charm orders, your welder, or registration fees. Many at once? Use Excel."}</div>`)}</div>
@@ -737,6 +784,7 @@ function openSheet(html, onSubmit, onReady){
 }
 function closeSheet(){ $("#sheetRoot").innerHTML = ""; }
 function writeError(err){
+  if (err && err.code === "same") return "Pick two different people.";
   if (err && err.code === "fx") return "Couldn't get the exchange rate. Type the rate in and save again.";
   if (err && err.code === "invalid_argument") { S.canWrite = false; render(); return "This login isn't allowed to make changes. Check the members list in Supabase."; }
   if (err && err.code === "quota_exceeded") return "Storage is full. Delete old entries and try again.";
@@ -797,7 +845,7 @@ function itemForm(it){
       <p class="note">Chains: keep them in metres. When you log a sale and pick a chain, your usual length for that product (Stock → Chain lengths) fills in and comes off stock automatically. The − / + buttons move 10 cm at a time.</p>
       <div class="grid2">
         <label class="f">Cost per unit (S$)<input name="cost" type="number" step="0.01" min="0" inputmode="decimal" value="${e.cost??""}"></label>
-        <label class="f">Supplier link<select name="linkId">${linkOpts(e.linkId)}</select></label>
+        <div class="f">Supplier link<div class="xl-row"><input type="search" class="linkQ" placeholder="Type to find a link…" aria-label="Find a supplier link" style="flex:1 1 140px"><span class="note linkHint"></span></div><select name="linkId" aria-label="Supplier link">${linkOpts(e.linkId)}</select></div>
       </div>
       <div class="f">Dead stock
         <label class="keep"><input type="checkbox" name="dead" ${e.dead?"checked":""}> Move to archive (dead stock: not selling, no restock alerts)</label>
@@ -826,7 +874,9 @@ function itemForm(it){
       }
       if (it && !!it.dead !== data.dead) logAct(`${data.dead ? "moved" : "restored"} ${data.name} ${data.dead ? "to" : "from"} the archive`);
       logAct(it ? (it.qty !== data.qty ? `edited ${data.name}: ${fmtQ(data,it.qty)} → ${fmtQ(data,data.qty)}` : `edited ${data.name}`) : `added stock item ${data.name}`);
-    }, form => { bindPhoto(form); fillFromLink(form, it); bindDelete(form, async () => { await S.db.collection("items").doc(it.id).delete(); toast("Item deleted"); logAct(`deleted stock item ${it.name}`); }); });
+    }, form => { bindPhoto(form); fillFromLink(form, it);
+      attachSearch({sel: form.querySelector("[name=linkId]"), q: form.querySelector(".linkQ"), hint: form.querySelector(".linkHint"), also: form.querySelector("[name=name]"), list: linkChoices(), empty: "None"});
+      bindDelete(form, async () => { await S.db.collection("items").doc(it.id).delete(); toast("Item deleted"); logAct(`deleted stock item ${it.name}`); }); });
 }
 
 function saleForm(s){
@@ -952,7 +1002,7 @@ function expenseForm(x, preset){
       </div>
       <div class="grid2">
         <label class="f">Type<select name="cat" id="expCat">${opt(EXP_CAT,e.cat)}</select></label>
-        <label class="f">Paid by<select name="who">${PEOPLE.map(p=>`<option ${p===(e.who||S.who)?"selected":""}>${p}</option>`).join("")}</select></label>
+        <label class="f">Paid by<select name="who">${PAYERS.map(p=>`<option ${p===(e.who||S.who)?"selected":""}>${p}</option>`).join("")}</select></label>
       </div>
       <div class="grid2">
         <label class="f">Payment<select name="pay">${PAY.map(p=>`<option ${p===e.pay?"selected":""}>${p}</option>`).join("")}</select></label>
@@ -1045,32 +1095,10 @@ function expenseForm(x, preset){
       if (srcSel) {
         srcSel.addEventListener("change", onSrc); onSrc(true);
         // Narrow the drop-down to links and stock items with similar names
-        const qEl = form.querySelector("#expSrcQ"), hint = form.querySelector("#expSrcHint"), descEl = form.querySelector("[name=desc]");
         const all = [...S.links].sort((a,b)=>(b.fav ? 1 : 0) - (a.fav ? 1 : 0) || (a.title||"").localeCompare(b.title||""))
           .map(l => ({v:"link:"+l.id, g: l.fav ? "★ Favourites" : "Wishlist / supplier links", t:(l.fav ? "★ " : "") + l.title + (l.shop ? " — " + l.shop : ""), fav: !!l.fav}))
           .concat([...S.items].filter(i => !i.dead || "item:"+i.id === curSrc).sort((a,b)=>a.name.localeCompare(b.name)).map(i => ({v:"item:"+i.id, g:"Stock items", t:i.name})));
-        const words = t => norm(t).split(/[^a-z0-9]+/).filter(w => w.length > 1);
-        // Common product words match almost everything, so they're ignored unless they're all you typed
-        const COMMON = new Set(["chain","chains","charm","charms","pendant","pendants","bead","beads",
-          "pc","pcs","piece","pieces","set","pack","mm","cm","the","and","for","with","of","x","order","item","items"]);
-        const qwords = t => { const w = words(t); const k = w.filter(x => !COMMON.has(x)); return k.length ? k : w; };
-        const score = (t, q) => { const ws = words(t); return q.reduce((a, k) => a + (ws.includes(k) ? 2 : ws.some(w => w.startsWith(k) || (k.startsWith(w) && w.length > 2)) ? 1 : 0), 0); };
-        const rebuild = text => {
-          const cur = srcSel.value, q = qwords(text);
-          let list = all, none = false;
-          if (q.length) {
-            const hits = all.map(o => ({...o, s: score(o.t, q)})).filter(o => o.s > 0 || o.v === cur).sort((a,b) => b.s - a.s || (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
-            if (hits.some(o => o.s > 0)) list = hits; else none = true;
-          }
-          const groups = {}; list.forEach(o => (groups[o.g] ||= []).push(o));
-          srcSel.innerHTML = `<option value="">Not a stock order</option>` + Object.entries(groups).map(([g, os]) =>
-            `<optgroup label="${esc(g)}">${os.map(o => `<option value="${o.v}" ${o.v === cur ? "selected" : ""}>${esc(o.t)}</option>`).join("")}</optgroup>`).join("");
-          const n = list.filter(o => o.s > 0).length;
-          hint.textContent = !q.length ? "" : none ? "No similar names, showing all" : `${n} similar`;
-        };
-        qEl.addEventListener("input", () => rebuild(qEl.value));
-        descEl.addEventListener("input", () => { if (!qEl.value && !srcSel.value) rebuild(descEl.value); });
-        rebuild("");
+        attachSearch({sel: srcSel, q: form.querySelector("#expSrcQ"), hint: form.querySelector("#expSrcHint"), also: form.querySelector("[name=desc]"), list: all, empty: "Not a stock order"});
       }
       bindDelete(form, async () => { await S.db.collection("expenses").doc(x.id).delete(); toast("Expense deleted"); logAct(`deleted an expense: ${x.desc}, ${money(x.amount)}`); });
     });
@@ -1078,11 +1106,39 @@ function expenseForm(x, preset){
 
 // Picking a supplier link in the stock form fills in its details. Fields the person has
 // changed themselves are left alone; on an existing item only empty fields are filled.
+// Type-to-narrow for link pickers. Common product words (chain, charm, pcs, mm...) are ignored
+// unless they're all you typed; favourites come first.
+const COMMON_WORDS = new Set(["chain","chains","charm","charms","pendant","pendants","bead","beads",
+  "pc","pcs","piece","pieces","set","pack","mm","cm","the","and","for","with","of","x","order","item","items"]);
+const nameWords = t => norm(t).split(/[^a-z0-9]+/).filter(w => w.length > 1);
+const queryWords = t => { const w = nameWords(t); const k = w.filter(x => !COMMON_WORDS.has(x)); return k.length ? k : w; };
+const matchScore = (t, q) => { const ws = nameWords(t); return q.reduce((a, k) => a + (ws.includes(k) ? 2 : ws.some(w => w.startsWith(k) || (k.startsWith(w) && w.length > 2)) ? 1 : 0), 0); };
+function attachSearch({sel, q, hint, also, list, empty}){
+  if (!sel || !q) return;
+  const rebuild = text => {
+    const cur = sel.value, qw = queryWords(text);
+    let shown = list, none = false;
+    if (qw.length) {
+      const hits = list.map(o => ({...o, s: matchScore(o.t, qw)})).filter(o => o.s > 0 || o.v === cur).sort((a,b) => b.s - a.s || (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
+      if (hits.some(o => o.s > 0)) shown = hits; else none = true;
+    }
+    const groups = {}; shown.forEach(o => (groups[o.g] ||= []).push(o));
+    sel.innerHTML = `<option value="">${esc(empty)}</option>` + Object.entries(groups).map(([g, os]) =>
+      `<optgroup label="${esc(g)}">${os.map(o => `<option value="${o.v}" ${o.v === cur ? "selected" : ""}>${esc(o.t)}</option>`).join("")}</optgroup>`).join("");
+    if (hint) hint.textContent = !qw.length ? "" : none ? "No similar names, showing all" : `${shown.filter(o => o.s > 0).length} similar`;
+  };
+  q.addEventListener("input", () => rebuild(q.value));
+  if (also) also.addEventListener("input", () => { if (!q.value && !sel.value) rebuild(also.value); });
+  rebuild("");
+}
+const linkChoices = () => [...S.links].sort((a,b)=>(b.fav ? 1 : 0) - (a.fav ? 1 : 0) || (a.title||"").localeCompare(b.title||""))
+  .map(l => ({v: l.id, g: l.fav ? "★ Favourites" : "Supplier links", t: (l.fav ? "★ " : "") + l.title + (l.shop ? " — " + l.shop : ""), fav: !!l.fav}));
+
 function fillFromLink(form, it){
   const linkSel = form.querySelector("[name=linkId]"); if (!linkSel) return;
   const mark = ev => { if (ev.target !== linkSel && ev.target.name) ev.target.dataset.touched = "1"; };
   form.addEventListener("input", mark); form.addEventListener("change", mark);
-  linkSel.addEventListener("change", () => {
+  linkSel.addEventListener("change", async () => {
     const l = linkById(linkSel.value); if (!l) return;
     const el = n => form.querySelector(`[name="${n}"]`);
     const set = (n, val, onlyIfEmpty) => { const e = el(n); if (!e || val == null || val === "" || e.dataset.touched) return false; if (onlyIfEmpty && e.value) return false; e.value = val; return true; };
@@ -1096,6 +1152,19 @@ function fillFromLink(form, it){
       if (set("unit", cat === "chain" ? "m" : "pcs")) filled.push("unit");
       if (l.lines && l.lines.length && !["pj","kc","un"].some(k => el(k)?.dataset.touched)) { ["pj","kc","un"].forEach(k => { if (el(k)) el(k).checked = l.lines.includes(k); }); filled.push("used for"); }
     } else if (!it.finish && set("finish", l.finish, true)) filled.push("finish");
+    // details: the link's specifications, one line
+    const specs = String(l.specs || "").split(/\n+/).map(x => x.trim()).filter(Boolean).join(", ");
+    if (specs && set("style", specs.length > 160 ? specs.slice(0, 157) + "…" : specs, true)) filled.push("details");
+    // cost per unit: price ÷ pack size, in SGD
+    if (l.price != null && l.price !== "" && !el("cost")?.value && !el("cost")?.dataset.touched) {
+      const unit = el("unit")?.value || "pcs";
+      const m = String(l.pack || "").match(/([\d.]+)\s*(m|cm|mm|pcs?|pieces?|ft|inch)?\b/i);
+      let n = m ? parseFloat(m[1]) || 1 : 1; const pu = m && m[2] ? m[2].toLowerCase() : "";
+      if (pu === "cm" && unit === "m") n = n / 100; else if (pu === "m" && unit === "cm") n = n * 100;
+      let rate = 1;
+      if ((l.priceCur || "SGD") !== "SGD") { try { rate = await getRate(l.priceCur); } catch(e) { rate = null; } }
+      if (rate && n > 0 && set("cost", Math.round(Number(l.price) / n * rate * 100) / 100, true)) filled.push("cost per unit");
+    }
     const ph = el("photo");
     if (l.photo && ph && !ph.value) {
       ph.value = l.photo; form.querySelector(".thumb.big").innerHTML = `<img src="${esc(photoSrc(l.photo))}" alt="">`;
@@ -1192,7 +1261,7 @@ function shopForm(s, preset){
       <label class="f">What to buy<input name="text" required value="${esc(e.text)}" placeholder="e.g. RG jump rings, gift pouches"></label>
       <div class="grid2">
         <label class="f">How much<input name="qty" value="${esc(e.qty)}" placeholder="e.g. 2 m, 50 pcs"></label>
-        <label class="f">Supplier link<select name="linkId">${linkOpts(e.linkId)}</select></label>
+        <div class="f">Supplier link<div class="xl-row"><input type="search" class="linkQ" placeholder="Type to find a link…" aria-label="Find a supplier link" style="flex:1 1 140px"><span class="note linkHint"></span></div><select name="linkId" aria-label="Supplier link">${linkOpts(e.linkId)}</select></div>
       </div>
       <div class="actions">${delBtn(!!s,"Remove")}<div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async fd => {
@@ -1201,7 +1270,8 @@ function shopForm(s, preset){
       else await S.db.collection("shop").doc().set({...data, itemId:e.itemId||"", done:false, by:S.me, who:S.who||"", createdAt:Date.now()});
       toast(s?"Saved":"Added to buy list");
       if (!s) logAct(`added ${data.text} to the buy list`);
-    }, form => bindDelete(form, async () => { await S.db.collection("shop").doc(s.id).delete(); toast("Removed"); }));
+    }, form => { attachSearch({sel: form.querySelector("[name=linkId]"), q: form.querySelector(".linkQ"), hint: form.querySelector(".linkHint"), also: form.querySelector("[name=text]"), list: linkChoices(), empty: "None"});
+      bindDelete(form, async () => { await S.db.collection("shop").doc(s.id).delete(); toast("Removed"); }); });
 }
 
 function bindDelete(form, fn){
@@ -1253,7 +1323,7 @@ const HELP = [
   "Expenses Amount is what you paid, in its Currency. Paid (S$) is worked out for you.",
   "Links Photo: paste the picture into the row (Insert > Pictures), or put an image link (https://...).",
   "Expenses in another currency: type the Amount in that currency and leave Amount (S$) blank. The app converts it using that date's exchange rate.",
-  "Expenses Paid by: Jessica or Valerie. Date: any normal date, e.g. 3/10/2026 (day/month/year).",
+  "Expenses Paid by: Jessica, Valerie or Both (split 50/50 when paid). Date: any normal date, e.g. 3/10/2026 (day/month/year).",
   "",
   "Uploading never deletes anything. The Sales sheet is for reference only; log sales in the app."
 ];
@@ -1433,8 +1503,8 @@ async function planImport(file){
       && Number(x.listPrice ?? x.origAmount ?? x.amount) === Number(listGuess)) : null) || null;
     const id = ex ? ex.id : S.db.collection("expenses").doc().id;
     const whoIn = txt(pick(r,"paid by","who"));
-    let who = PEOPLE.find(p => norm(p) === norm(whoIn)) || "";
-    if (!who) { who = ex?.who || ""; if (whoIn) plan.warnings.push(`Expenses row ${i+2}: “${whoIn}” isn't Jessica or Valerie, so Paid by was left blank.`); }
+    let who = PAYERS.find(p => norm(p) === norm(whoIn)) || (/both|split|50/.test(norm(whoIn)) ? "Both" : "");
+    if (!who) { who = ex?.who || ""; if (whoIn) plan.warnings.push(`Expenses row ${i+2}: “${whoIn}” isn't Jessica, Valerie or Both, so Paid by was left blank.`); }
     let cur = curCode(pick(r,"currency"));
     if (cur === null) { plan.warnings.push(`Expenses row ${i+2}: currency “${txt(pick(r,"currency"))}” isn't supported, so the amount was taken as SGD.`); cur = "SGD"; }
     const list = listIn ?? sgdIn ?? 0;
@@ -1590,6 +1660,8 @@ document.addEventListener("click", async ev => {
     case "excel": excelSheet(); break;
     case "lengths": lengthsForm(); break;
     case "newExp": expenseForm(); break;
+    case "newPayback": paybackForm(); break;
+    case "editPayback": if (S.canWrite) paybackForm(S.settle.find(x => x.id === id)); break;
     case "editWO": if (S.canWrite) woForm(S.deadstock.find(d => d.id === id)); break;
     case "unarchive": {
       const it = itemById(id); if (!it) break;
@@ -1825,7 +1897,7 @@ async function start(sb, session){
   }, () => { S.loaded.activity = true; render(); });
   if (!S.who && S.canWrite) whoPicker();
   db.doc("config/lengths").onSnapshot(d => { S.lengths = {...DEFAULT_LEN, ...(d.exists ? d.data() : {})}; }, () => {});
-  for (const k of ["items","sales","links","shop","expenses","deadstock"]) {
+  for (const k of ["items","sales","links","shop","expenses","deadstock","settle"]) {
     db.collection(k).onSnapshot(snap => {
       S[k] = snap.docs.map(d => ({id:d.id, ...d.data()}));
       S.loaded[k] = true;
