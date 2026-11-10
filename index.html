@@ -1140,6 +1140,35 @@ function attachSearch({sel, q, hint, also, list, empty}){
 const linkChoices = () => [...S.links].sort((a,b)=>(b.fav ? 1 : 0) - (a.fav ? 1 : 0) || (a.title||"").localeCompare(b.title||""))
   .map(l => ({v: l.id, g: l.fav ? "★ Favourites" : "Supplier links", t: (l.fav ? "★ " : "") + l.title + (l.shop ? " — " + l.shop : ""), fav: !!l.fav}));
 
+// SGD cost of one unit from a link's price and pack size (e.g. US$12.50 per "1 m" → per m)
+async function linkUnitCost(l, unit){
+  if (l.price == null || l.price === "") return null;
+  const m = String(l.pack || "").match(/([\d.]+)\s*(m|cm|mm|pcs?|pieces?|ft|inch)?\b/i);
+  let n = m ? parseFloat(m[1]) || 1 : 1; const pu = m && m[2] ? m[2].toLowerCase() : "";
+  if (pu === "cm" && unit === "m") n = n / 100; else if (pu === "m" && unit === "cm") n = n * 100;
+  let rate = 1;
+  if ((l.priceCur || "SGD") !== "SGD") { try { rate = await getRate(l.priceCur); } catch(e) { return null; } }
+  return n > 0 ? Math.round(Number(l.price) / n * rate * 100) / 100 : null;
+}
+const specsLine = l => { const t = String(l.specs || "").split(/\n+/).map(x => x.trim()).filter(Boolean).join(", "); return t.length > 160 ? t.slice(0, 157) + "…" : t; };
+// Connect a link to an existing stock item and fill each side's missing details from the other.
+async function connectLinkToItem(link, item){
+  const patch = {linkId: link.id}, got = [];
+  if (!item.finish && link.finish) { patch.finish = link.finish; got.push("finish"); }
+  if (!item.style && link.specs) { patch.style = specsLine(link); got.push("details"); }
+  if (item.cost == null || item.cost === "") { const c = await linkUnitCost(link, item.unit || "pcs"); if (c != null) { patch.cost = c; got.push("cost per unit"); } }
+  if (!item.photo && link.photo) { patch.photo = link.photo; got.push("photo"); }
+  if (link.connector && item.cat === "charm" && !item.connector) { patch.connector = true; got.push("connector"); }
+  await S.db.collection("items").doc(item.id).update({...patch, ...stamp()});
+  const lp = {};
+  if (!link.metal && item.metal) lp.metal = item.metal;
+  if (!link.finish && item.finish) lp.finish = item.finish;
+  if (!(link.lines || []).length && (item.lines || []).length) lp.lines = item.lines;
+  if (!link.photo && item.photo) lp.photo = item.photo;
+  if (Object.keys(lp).length) await S.db.collection("links").doc(link.id).update(lp);
+  return got;
+}
+
 function fillFromLink(form, it){
   const linkSel = form.querySelector("[name=linkId]"); if (!linkSel) return;
   const mark = ev => { if (ev.target !== linkSel && ev.target.name) ev.target.dataset.touched = "1"; };
@@ -1162,17 +1191,12 @@ function fillFromLink(form, it){
       if (l.lines && l.lines.length && !["pj","kc","un"].some(k => el(k)?.dataset.touched)) { ["pj","kc","un"].forEach(k => { if (el(k)) el(k).checked = l.lines.includes(k); }); filled.push("used for"); }
     } else if (!it.finish && set("finish", l.finish, true)) filled.push("finish");
     // details: the link's specifications, one line
-    const specs = String(l.specs || "").split(/\n+/).map(x => x.trim()).filter(Boolean).join(", ");
-    if (specs && set("style", specs.length > 160 ? specs.slice(0, 157) + "…" : specs, true)) filled.push("details");
+    const specs = specsLine(l);
+    if (specs && set("style", specs, true)) filled.push("details");
     // cost per unit: price ÷ pack size, in SGD
-    if (l.price != null && l.price !== "" && !el("cost")?.value && !el("cost")?.dataset.touched) {
-      const unit = el("unit")?.value || "pcs";
-      const m = String(l.pack || "").match(/([\d.]+)\s*(m|cm|mm|pcs?|pieces?|ft|inch)?\b/i);
-      let n = m ? parseFloat(m[1]) || 1 : 1; const pu = m && m[2] ? m[2].toLowerCase() : "";
-      if (pu === "cm" && unit === "m") n = n / 100; else if (pu === "m" && unit === "cm") n = n * 100;
-      let rate = 1;
-      if ((l.priceCur || "SGD") !== "SGD") { try { rate = await getRate(l.priceCur); } catch(e) { rate = null; } }
-      if (rate && n > 0 && set("cost", Math.round(Number(l.price) / n * rate * 100) / 100, true)) filled.push("cost per unit");
+    if (!el("cost")?.value && !el("cost")?.dataset.touched) {
+      const c = await linkUnitCost(l, el("unit")?.value || "pcs");
+      if (c != null && set("cost", c, true)) filled.push("cost per unit");
     }
     const ph = el("photo");
     if (l.photo && ph && !ph.value) {
@@ -1230,7 +1254,7 @@ function lengthsForm(){
 }
 
 function linkForm(l){
-  const e = l || {metal:"YG"};
+  const e = l || {metal:""};
   openSheet(`<h2>${l?"Edit link":"Add supplier link"}</h2>
     <form>
       <label class="f">Product name<input name="title" required value="${esc(e.title)}" placeholder="e.g. 14K gold-filled cable chain 1.3mm"></label>
@@ -1241,6 +1265,11 @@ function linkForm(l){
       </div>
       <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
       <label class="keep"><input type="checkbox" name="connector" ${e.connector?"checked":""}> Connector charm (joins two ends of a chain)</label>
+      <div class="f">Connect to a stock item (optional)
+        <div class="xl-row"><input type="search" class="itemQ" placeholder="Type to find a stock item…" aria-label="Find a stock item" style="flex:1 1 140px"><span class="note itemHint"></span></div>
+        <select name="forItem" aria-label="Stock item to connect"><option value="">Don't connect</option></select>
+        <span style="font-weight:400">${(() => { const c = l ? S.items.filter(i => i.linkId === l.id) : []; return c.length ? "Already connected: " + c.map(i => esc(i.name)).join(", ") + ". " : ""; })()}Picking an item connects it to this link and fills in its missing finish, details, cost per unit and photo.</span>
+      </div>
       <div class="f">Used for
         <div class="checks"><label><input type="checkbox" name="pj" ${(e.lines||[]).includes("pj")?"checked":""}> Permanent jewellery</label><label><input type="checkbox" name="kc" ${(e.lines||[]).includes("kc")?"checked":""}> Keychain</label><label><input type="checkbox" name="un" ${(e.lines||[]).includes("un")?"checked":""}> Unsure</label></div>
       </div>
@@ -1261,7 +1290,17 @@ function linkForm(l){
       if (!l) data.createdAt = Date.now();
       await (l ? ref.update(data) : ref.set(data)); toast(l?"Link saved":"Link added");
       logAct(`${l?"edited":"added"} supplier link ${data.title}`);
-    }, form => { bindPhoto(form); bindDelete(form, async () => { await S.db.collection("links").doc(l.id).delete(); toast("Link deleted"); logAct(`deleted supplier link ${l.title}`); }); });
+      const forItem = itemById(fd.get("forItem") || "");
+      if (forItem) {
+        const got = await connectLinkToItem(linkById(ref.id) || {...data, id: ref.id}, forItem);
+        toast(`Connected to ${forItem.name}${got.length ? `. Filled in: ${got.join(", ")}` : ""}`);
+        logAct(`connected ${forItem.name} to supplier link ${data.title}`);
+      }
+    }, form => { bindPhoto(form);
+      attachSearch({sel: form.querySelector("[name=forItem]"), q: form.querySelector(".itemQ"), hint: form.querySelector(".itemHint"), also: form.querySelector("[name=title]"),
+        list: [...S.items].filter(i => !i.dead && !(l && i.linkId === l.id)).sort((a,b) => (a.linkId ? 1 : 0) - (b.linkId ? 1 : 0) || a.name.localeCompare(b.name))
+          .map(i => ({v: i.id, g: i.linkId ? "Already has a link" : "No link yet", t: i.name})), empty: "Don't connect"});
+      bindDelete(form, async () => { await S.db.collection("links").doc(l.id).delete(); toast("Link deleted"); logAct(`deleted supplier link ${l.title}`); }); });
 }
 
 function shopForm(s, preset){
