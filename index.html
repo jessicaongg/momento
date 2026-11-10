@@ -826,7 +826,7 @@ function itemForm(it){
       }
       if (it && !!it.dead !== data.dead) logAct(`${data.dead ? "moved" : "restored"} ${data.name} ${data.dead ? "to" : "from"} the archive`);
       logAct(it ? (it.qty !== data.qty ? `edited ${data.name}: ${fmtQ(data,it.qty)} → ${fmtQ(data,data.qty)}` : `edited ${data.name}`) : `added stock item ${data.name}`);
-    }, form => { bindPhoto(form); bindDelete(form, async () => { await S.db.collection("items").doc(it.id).delete(); toast("Item deleted"); logAct(`deleted stock item ${it.name}`); }); });
+    }, form => { bindPhoto(form); fillFromLink(form, it); bindDelete(form, async () => { await S.db.collection("items").doc(it.id).delete(); toast("Item deleted"); logAct(`deleted stock item ${it.name}`); }); });
 }
 
 function saleForm(s){
@@ -1074,6 +1074,35 @@ function expenseForm(x, preset){
       }
       bindDelete(form, async () => { await S.db.collection("expenses").doc(x.id).delete(); toast("Expense deleted"); logAct(`deleted an expense: ${x.desc}, ${money(x.amount)}`); });
     });
+}
+
+// Picking a supplier link in the stock form fills in its details. Fields the person has
+// changed themselves are left alone; on an existing item only empty fields are filled.
+function fillFromLink(form, it){
+  const linkSel = form.querySelector("[name=linkId]"); if (!linkSel) return;
+  const mark = ev => { if (ev.target !== linkSel && ev.target.name) ev.target.dataset.touched = "1"; };
+  form.addEventListener("input", mark); form.addEventListener("change", mark);
+  linkSel.addEventListener("change", () => {
+    const l = linkById(linkSel.value); if (!l) return;
+    const el = n => form.querySelector(`[name="${n}"]`);
+    const set = (n, val, onlyIfEmpty) => { const e = el(n); if (!e || val == null || val === "" || e.dataset.touched) return false; if (onlyIfEmpty && e.value) return false; e.value = val; return true; };
+    const filled = [];
+    if (set("name", l.title, true)) filled.push("name");
+    if (!it) {
+      const cat = guessCat(l.title);
+      if (set("cat", cat)) filled.push("type");
+      if (set("metal", l.metal)) filled.push("metal");
+      if (set("finish", l.finish)) filled.push("finish");
+      if (set("unit", cat === "chain" ? "m" : "pcs")) filled.push("unit");
+      if (l.lines && l.lines.length && !["pj","kc","un"].some(k => el(k)?.dataset.touched)) { ["pj","kc","un"].forEach(k => { if (el(k)) el(k).checked = l.lines.includes(k); }); filled.push("used for"); }
+    } else if (!it.finish && set("finish", l.finish, true)) filled.push("finish");
+    const ph = el("photo");
+    if (l.photo && ph && !ph.value) {
+      ph.value = l.photo; form.querySelector(".thumb.big").innerHTML = `<img src="${esc(photoSrc(l.photo))}" alt="">`;
+      const rm = form.querySelector("#phRemove"); if (rm) rm.hidden = false; filled.push("photo");
+    }
+    if (filled.length) toast("Filled in from the link: " + filled.join(", "));
+  });
 }
 
 function woForm(x){
