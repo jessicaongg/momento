@@ -880,6 +880,8 @@ function itemForm(it){
       if (wo && data.qty != null) data.qty = Math.max(0, Math.round((data.qty - wo) * 10000) / 10000);
       const ref = it ? S.db.collection("items").doc(it.id) : S.db.collection("items").doc();
       await ref.set(data); toast(wo ? `Saved. ${wo} ${data.unit||""} written off` : it?"Item saved":"Item added");
+      const synced = await syncFromItem(it, data, ref.id);
+      if (synced) toast(`Saved. Also updated the link “${synced.link}”${synced.others ? ` and ${synced.others} other stock item${synced.others === 1 ? "" : "s"}` : ""}`);
       if (wo) {
         const reason = fd.get("woReason") || "other";
         await S.db.collection("deadstock").doc().set({date: today(), itemId: ref.id, name: data.name, qty: wo, unit: data.unit || "", reason,
@@ -1159,6 +1161,41 @@ function attachSearch({sel, q, hint, also, list, empty, initial}){
 const linkChoices = () => [...S.links].sort((a,b)=>(b.fav ? 1 : 0) - (a.fav ? 1 : 0) || (a.title||"").localeCompare(b.title||""))
   .map(l => ({v: l.id, g: l.fav ? "★ Favourites" : "Supplier links", t: (l.fav ? "★ " : "") + l.title + (l.shop ? " — " + l.shop : ""), fav: !!l.fav}));
 
+// Keep a link and its stock items aligned: when one side's shared details change, copy just those changes across.
+const SYNC_FIELDS = [["metal","metal"],["finish","finish"],["karat","karat"],["lines","lines"],["connector","connector"],["photo","photo"],["style","specs"]];
+const sameVal = (a, b) => JSON.stringify(a === undefined || a === null || a === "" || a === false ? null : a) === JSON.stringify(b === undefined || b === null || b === "" || b === false ? null : b);
+async function syncFromLink(oldL, newL, linkId){
+  const items = S.items.filter(i => i.linkId === linkId);
+  if (!oldL || !items.length) return 0;
+  const patch = {};
+  for (const [fi, fl] of SYNC_FIELDS) if (!sameVal(oldL[fl], newL[fl])) patch[fi] = fl === "specs" ? specsLine(newL) : (newL[fl] ?? "");
+  if (!Object.keys(patch).length) return 0;
+  let n = 0;
+  for (const it of items) {
+    const p = {...patch}; if ("connector" in p && it.cat !== "charm") delete p.connector;
+    if (!Object.keys(p).length) continue;
+    await S.db.collection("items").doc(it.id).update({...p, ...stamp()}); n++;
+  }
+  return n;
+}
+async function syncFromItem(oldI, newI, itemId){
+  if (!oldI || !newI.linkId || oldI.linkId !== newI.linkId) return null;
+  const link = linkById(newI.linkId); if (!link) return null;
+  const lp = {}, ip = {};
+  for (const [fi, fl] of SYNC_FIELDS) if (!sameVal(oldI[fi], newI[fi])) { lp[fl] = newI[fi] ?? ""; ip[fi] = newI[fi] ?? ""; }
+  if (!Object.keys(lp).length) return null;
+  if ("connector" in lp && newI.cat !== "charm") { delete lp.connector; delete ip.connector; }
+  if (!Object.keys(lp).length) return null;
+  await S.db.collection("links").doc(link.id).update(lp);
+  let n = 0;
+  for (const o of S.items.filter(i => i.linkId === link.id && i.id !== itemId)) {
+    const p = {...ip}; if ("connector" in p && o.cat !== "charm") delete p.connector;
+    if (!Object.keys(p).length) continue;
+    await S.db.collection("items").doc(o.id).update({...p, ...stamp()}); n++;
+  }
+  return {link: link.title, others: n};
+}
+
 // SGD cost of one unit from a link's price and pack size (e.g. US$12.50 per "1 m" → per m)
 async function linkUnitCost(l, unit){
   if (l.price == null || l.price === "") return null;
@@ -1317,6 +1354,8 @@ function linkForm(l){
       const ref = l ? S.db.collection("links").doc(l.id) : S.db.collection("links").doc();
       if (!l) data.createdAt = Date.now();
       await (l ? ref.update(data) : ref.set(data)); toast(l?"Link saved":"Link added");
+      const syncedN = await syncFromLink(l, data, ref.id);
+      if (syncedN) toast(`Link saved. Also updated ${syncedN} connected stock item${syncedN === 1 ? "" : "s"}`);
       logAct(`${l?"edited":"added"} supplier link ${data.title}`);
       const forItem = itemById(fd.get("forItem") || "");
       if (forItem) {
