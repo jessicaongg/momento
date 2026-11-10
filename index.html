@@ -176,6 +176,8 @@ img{max-width:100%}
 .login-card .logo{font-size:3rem}
 .login form{display:flex;flex-direction:column;gap:12px;text-align:left}
 .login .btn{justify-content:center;padding:12px}
+.keep{display:flex;gap:8px;align-items:center;font-size:.9rem;color:var(--ink)}
+.keep input{width:auto;accent-color:var(--primary)}
 .who select:disabled{opacity:1;-webkit-appearance:none;appearance:none;border-color:transparent;background:none;padding-right:2px;color:var(--ink)}
 </style>
 </head>
@@ -208,6 +210,7 @@ img{max-width:100%}
     <form id="loginForm">
       <label class="f">Email<input id="lEmail" type="email" autocomplete="username" inputmode="email" required></label>
       <label class="f">Password<input id="lPass" type="password" autocomplete="current-password" required></label>
+      <label class="keep"><input type="checkbox" id="lKeep" checked> Keep me signed in on this phone</label>
       <button class="btn primary" type="submit" id="lBtn">Sign in</button>
       <p class="note" id="lMsg" role="alert"></p>
     </form>
@@ -1285,7 +1288,11 @@ function makeDb(sb){
   if (!window.supabase) return offline("Couldn't load the app. Check your internet connection and open it again.");
   if (!cfg.supabaseUrl || /YOUR_/.test(cfg.supabaseUrl + cfg.supabaseKey)) return offline("The app isn't connected to its database yet.");
   const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, {auth:{persistSession:true, autoRefreshToken:true}});
-  const {data:{session}} = await sb.auth.getSession();
+  let {data:{session}} = await sb.auth.getSession();
+  // "Keep me signed in" unticked: sign out once the app has been closed.
+  let temp = false, live = false;
+  try { temp = localStorage.getItem("momento.temp") === "1"; live = sessionStorage.getItem("momento.live") === "1"; } catch(e) {}
+  if (session && temp && !live) { await sb.auth.signOut(); session = null; }
   if (!session) {
     $("#login").hidden = false;
     $("#loginForm").addEventListener("submit", async e => {
@@ -1294,6 +1301,10 @@ function makeDb(sb){
       btn.disabled = true; msg.textContent = "Signing in…";
       const {error} = await sb.auth.signInWithPassword({email: $("#lEmail").value.trim(), password: $("#lPass").value});
       if (error) { btn.disabled = false; msg.textContent = /invalid/i.test(error.message) ? "Wrong email or password." : "Couldn't sign in. Check your connection and try again."; return; }
+      try {
+        if ($("#lKeep").checked) localStorage.removeItem("momento.temp");
+        else { localStorage.setItem("momento.temp", "1"); sessionStorage.setItem("momento.live", "1"); }
+      } catch(e) {}
       location.reload();
     });
     return;
