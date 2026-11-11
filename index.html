@@ -237,7 +237,7 @@ img{max-width:100%}
 <script src="config.js"></script>
 <script>
 (() => {
-const CAT = {chain:"Chain", jumpring:"Jump ring", charm:"Charm", findings:"Findings", other:"Other supply"};
+const CAT = {chain:"Chain", jumpring:"Jump ring", charm:"Charm", spacer:"Spacer", findings:"Findings", other:"Other supply"};
 const METAL = {YG:"Yellow gold", SS:"Sterling silver", RG:"Rose gold", mixed:"Mixed", "":"No metal"};
 const LINE = {pj:"Permanent jewellery", kc:"Keychain"};
 const LINE_SHORT = {pj:"PJ", kc:"Keychain", un:"Unsure"};
@@ -501,13 +501,13 @@ function vStock(){
     (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || (f.cat==="connector" ? i.cat==="charm" && !!i.connector : f.cat==="norestock" ? !!i.noRestock : i.cat===f.cat))) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) && (!f.karat || f.karat==="all" || (i.karat||"")===f.karat) &&
     (f.line==="all"||(i.lines||[]).includes(f.line)) &&
     (!f.q || (i.name+" "+(i.style||"")+" "+(i.notes||"")).toLowerCase().includes(f.q.toLowerCase())));
-  const order = {chain:0,jumpring:1,charm:2,findings:3,other:4};
+  const order = {chain:0,jumpring:1,charm:2,spacer:3,findings:4,other:5};
   items.sort((a,b)=>(order[a.cat]-order[b.cat]) || a.name.localeCompare(b.name));
   return `<section>
     <div class="sec-head"><h2>Stock</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${S.canWrite?`<button class="btn" data-a="lengths">Chain lengths</button>`:""}<button class="btn" data-a="excel">Excel</button>${addBtn("newItem","Add item")}</div></div>
     <div class="filters">
       <input id="q" type="search" placeholder="Search stock (e.g. birthstone, double-sided)" value="${esc(f.q)}" aria-label="Search stock">
-      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["findings","Findings"],["other","Other"],["norestock","Not restocking"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
+      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["spacer","Spacers"],["findings","Findings"],["other","Other"],["norestock","Not restocking"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["YG","YG","YG"],["SS","SS","SS"],["RG","RG","RG"]],f.metal)}
       ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],f.finish||"all")}
       ${chipset("karat",[["all","All karats"],["14","14K"],["18","18K"],["24","24K"]],f.karat||"all")}
@@ -553,7 +553,7 @@ function vSales(){
   </section>`;
 }
 
-function guessCat(t){ t = (t||"").toLowerCase(); return /jump ?ring/.test(t) ? "jumpring" : /chain/.test(t) ? "chain" : /charm|pendant|birthstone/.test(t) ? "charm" : /finding|clasp|lobster|connector|bail|ear ?wire|earring hook|crimp|end cap|spring ring|toggle|key ?ring|split ring/.test(t) ? "findings" : "other"; }
+function guessCat(t){ t = (t||"").toLowerCase(); return /spacer/.test(t) ? "spacer" : /jump ?ring/.test(t) ? "jumpring" : /chain/.test(t) ? "chain" : /charm|pendant|birthstone/.test(t) ? "charm" : /finding|clasp|lobster|connector|bail|ear ?wire|earring hook|crimp|end cap|spring ring|toggle|key ?ring|split ring/.test(t) ? "findings" : "other"; }
 function newItemFromLink(link, qty, unit, sgd){
   return {name: link.title, cat: link.connector ? "charm" : guessCat(link.title), metal: link.metal || "", finish: link.finish || "", karat: link.karat || karatFromText(link.title),
     connector: !!link.connector || (/connector/i.test(link.title || "") && guessCat(link.title) === "charm"), style: "", lines: (link.lines && link.lines.length) ? link.lines : ["pj"],
@@ -1432,7 +1432,7 @@ const HELP = [
   "3. In the app, open Stock or Links, tap Excel, then Choose file and pick this file. You'll see a summary before anything changes.",
   "",
   "ALLOWED VALUES",
-  "Type: Chain, Jump ring, Charm, Findings (clasps, connectors, ear wires...), Other supply",
+  "Type: Chain, Jump ring, Charm, Spacer, Findings (clasps, connectors, ear wires...), Other supply",
   "Metal: YG, SS, RG, Mixed (or blank)",
   "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
   "Connector (Stock and Links): Yes for connector charms that join two ends of a chain.",
@@ -1460,7 +1460,7 @@ const metalText = m => m === "mixed" ? "Mixed" : (m || "");
 
 async function buildWorkbook(){
   const X = await loadXLSX(); const wb = X.utils.book_new();
-  const order = {chain:0,jumpring:1,charm:2,findings:3,other:4};
+  const order = {chain:0,jumpring:1,charm:2,spacer:3,findings:4,other:5};
   const stock = [...S.items].sort((a,b)=>(order[a.cat]-order[b.cat]) || a.name.localeCompare(b.name)).map(i => ({
     "ID":i.id, "Name":i.name, "Type":CAT[i.cat]||"", "Metal":metalText(i.metal), "Style / details":i.style||"", "Used for":linesText(i.lines),
     "In stock":i.qty ?? "", "Unit":i.unit||"", "Restock at":i.lowAt ?? "", "Cost per unit (S$)":i.cost ?? "",
@@ -1515,7 +1515,7 @@ function pick(row, ...names){
   for (const k of Object.keys(row)) if (names.includes(norm(k).replace(/\s*\(.*\)$/,""))) return row[k];
   return "";
 }
-function mapCat(v, prev){ const s = norm(v); if (!s) return prev || "other"; if (s.startsWith("chain")) return "chain"; if (s.startsWith("jump")) return "jumpring"; if (s.startsWith("charm")) return "charm"; if (s.startsWith("find")) return "findings"; return "other"; }
+function mapCat(v, prev){ const s = norm(v); if (!s) return prev || "other"; if (s.startsWith("chain")) return "chain"; if (s.startsWith("jump")) return "jumpring"; if (s.startsWith("charm")) return "charm"; if (s.startsWith("spacer")) return "spacer"; if (s.startsWith("find")) return "findings"; return "other"; }
 function mapMetal(v){ const s = norm(v).replace(/[^a-z]/g,"");
   if (["yg","yellowgold","gold","yellow"].includes(s)) return "YG";
   if (["ss","sterlingsilver","silver","sterling"].includes(s)) return "SS";
