@@ -101,7 +101,7 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .pill.low{background:var(--warn-bg);color:var(--warn)} .pill.out{background:var(--bad-bg);color:var(--bad)}
 .pill.uncounted{background:var(--sunk);color:var(--muted)}
 .sw{width:12px;height:12px;border-radius:50%;flex:none;display:inline-block;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
-.sw.YG{background:var(--yg)} .sw.SS{background:var(--ss)} .sw.RG{background:var(--rg)} .sw.mixed{background:conic-gradient(var(--yg) 0 33%,var(--ss) 0 66%,var(--rg) 0)} .sw.none{background:var(--sunk)}
+.sw.YG{background:var(--yg)} .sw.SS{background:var(--ss)} .sw.RG{background:var(--rg)} .sw.brass{background:#B5893B} .sw.mixed{background:conic-gradient(var(--yg) 0 33%,var(--ss) 0 66%,var(--rg) 0)} .sw.none{background:var(--sunk)}
 
 /* stats */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
@@ -238,7 +238,7 @@ img{max-width:100%}
 <script>
 (() => {
 const CAT = {chain:"Chain", jumpring:"Jump ring", charm:"Charm", spacer:"Spacer", findings:"Findings", other:"Other supply"};
-const METAL = {YG:"Yellow gold", SS:"Sterling silver", RG:"Rose gold", mixed:"Mixed", "":"No metal"};
+const METAL = {YG:"Yellow gold", SS:"Sterling silver", RG:"Rose gold", brass:"Brass", mixed:"Mixed", "":"No metal"};
 const LINE = {pj:"Permanent jewellery", kc:"Keychain"};
 const LINE_SHORT = {pj:"PJ", kc:"Keychain", un:"Unsure"};
 const PRODUCTS = {pj:["Bracelet","Anklet","Necklace","Ring","Other"], kc:["Bottle keychain","Keychain","Other"]};
@@ -319,13 +319,13 @@ function stockState(it){
   return "ok";
 }
 const needsRestock = () => S.items.filter(i => !i.dead && !i.noRestock && ["low","out"].includes(stockState(i)));
-const KARAT = {"":"Not set", "14":"14K", "18":"18K", "24":"24K"};
-const karatOpts = cur => [["","Not set"],["14","14K"],["18","18K"],["24","24K"]].map(([k,l]) => `<option value="${k}" ${k===cur?"selected":""}>${l}</option>`).join("");
+const KARAT = {"":"Not set", "14":"14K", "16":"16K", "18":"18K", "24":"24K"};
+const karatOpts = cur => [["","Not set"],["14","14K"],["16","16K"],["18","18K"],["24","24K"]].map(([k,l]) => `<option value="${k}" ${k===cur?"selected":""}>${l}</option>`).join("");
 // "14K", "14ct", "14 kt", "585" → "14"; "18K", "750" → "18"; "24K", "999" → "24"
-function mapKarat(v){ const t = String(v ?? "").toLowerCase(); const m = t.match(/\b(14|18|24)\s*(k|kt|ct|karat|carat)?\b/); if (m && (m[2] || /^\s*(14|18|24)\s*$/.test(t))) return m[1];
-  if (/\b585\b/.test(t)) return "14"; if (/\b750\b/.test(t)) return "18"; if (/\b(999|24k)\b/.test(t)) return "24"; return ""; }
+function mapKarat(v){ const t = String(v ?? "").toLowerCase(); const m = t.match(/\b(14|16|18|24)\s*(k|kt|ct|karat|carat)?\b/); if (m && (m[2] || /^\s*(14|16|18|24)\s*$/.test(t))) return m[1];
+  if (/\b585\b/.test(t)) return "14"; if (/\b667\b/.test(t)) return "16"; if (/\b750\b/.test(t)) return "18"; if (/\b(999|24k)\b/.test(t)) return "24"; return ""; }
 const finishFromText = t => { t = String(t || "").toLowerCase(); return /gold[\s-]*filled|\bgf\b/.test(t) ? "filled" : /plated|vermeil/.test(t) ? "plated" : /\bsolid\b/.test(t) ? "solid" : ""; };
-const karatFromText = t => { const m = String(t || "").toLowerCase().match(/\b(14|18|24)\s*(k|kt|ct|karat|carat)\b/); return m ? m[1] : ""; };
+const karatFromText = t => { const m = String(t || "").toLowerCase().match(/\b(14|16|18|24)\s*(k|kt|ct|karat|carat)\b/); return m ? m[1] : ""; };
 const FINISH = {"":"Not set", solid:"Solid", filled:"Gold filled", plated:"Gold plated"};
 function mapFinish(v){ const t = String(v ?? "").toLowerCase(); return /fill/.test(t) ? "filled" : /plat/.test(t) ? "plated" : /solid/.test(t) ? "solid" : ""; }
 const WRITE_OFF = {damaged:"Damaged", defective:"Defective", lost:"Lost", unsellable:"Won't sell", other:"Other"};
@@ -508,9 +508,9 @@ function vStock(){
     <div class="filters">
       <input id="q" type="search" placeholder="Search stock (e.g. birthstone, double-sided)" value="${esc(f.q)}" aria-label="Search stock">
       ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["spacer","Spacers"],["findings","Findings"],["other","Other"],["norestock","Not restocking"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
-      ${chipset("metal",[["all","All metals"],["YG","YG","YG"],["SS","SS","SS"],["RG","RG","RG"]],f.metal)}
+      ${chipset("metal",[["all","All metals"],["YG","YG","YG"],["SS","SS","SS"],["RG","RG","RG"],["brass","Brass","brass"]],f.metal)}
       ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],f.finish||"all")}
-      ${chipset("karat",[["all","All karats"],["14","14K"],["18","18K"],["24","24K"]],f.karat||"all")}
+      ${chipset("karat",[["all","All karats"],["14","14K"],["16","16K"],["18","18K"],["24","24K"]],f.karat||"all")}
       ${chipset("line",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],f.line)}
     </div>
     ${f.cat === "dead" ? `<p class="note">The archive keeps dead stock out of your main list and restock alerts. Tap Restore to bring an item back, or open it to write off more pieces.</p>`
@@ -761,7 +761,7 @@ function vLinks(){
     ${chipset("lline",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],lf)}
     ${chipset("lfav",[["all","All links"],["fav","★ Favourites"]],S.f.lfav||"all")}
     ${chipset("lfin",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],S.f.lfin||"all")}
-    ${chipset("lkar",[["all","All karats"],["14","14K"],["18","18K"],["24","24K"]],S.f.lkar||"all")}
+    ${chipset("lkar",[["all","All karats"],["14","14K"],["16","16K"],["18","18K"],["24","24K"]],S.f.lkar||"all")}
     <p class="note">Save where you buy each supply and its exact specs (metal, gauge, chain style, length, pack size), so either of you can reorder the same thing.</p>
     <div class="list">${loading("links") || (list.length ? rows : `<div class="empty">${S.links.length?"No links match.":"No links yet. Add the shop listing for a chain or charm with “Add link”."}</div>`)}</div>
   </section>`;
@@ -1433,11 +1433,11 @@ const HELP = [
   "",
   "ALLOWED VALUES",
   "Type: Chain, Jump ring, Charm, Spacer, Findings (clasps, connectors, ear wires...), Other supply",
-  "Metal: YG, SS, RG, Mixed (or blank)",
+  "Metal: YG, SS, RG, Brass, Mixed (or blank)",
   "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
   "Connector (Stock and Links): Yes for connector charms that join two ends of a chain.",
   "No restock (Stock sheet): Yes for items you won't buy again. They stay in stock but never show as running low.",
-  "Karat (Stock, Links and Expenses): 14K, 18K or 24K (or blank). 14ct, 585 and 750 also work.",
+  "Karat (Stock, Links and Expenses): 14K, 16K, 18K or 24K (or blank). 14ct, 585 and 750 also work.",
   "Used for: PJ, Keychain, Both or Unsure",
   "Unit: m, cm, pcs, inch, ft. Keep chains in m (metres).",
   "Dead stock (Stock sheet): Yes moves the item to the Archive (no restock alerts). To write off damaged or lost pieces, use the item's edit screen in the app.",
@@ -1456,7 +1456,7 @@ const HELP = [
 ];
 const linesText = l => { l = l||[]; const b = l.includes("pj") && l.includes("kc") ? "Both" : l.includes("kc") ? "Keychain" : l.includes("pj") ? "PJ" : "";
   return l.includes("un") ? (b ? b + ", Unsure" : "Unsure") : b; };
-const metalText = m => m === "mixed" ? "Mixed" : (m || "");
+const metalText = m => m === "mixed" ? "Mixed" : m === "brass" ? "Brass" : (m || "");
 
 async function buildWorkbook(){
   const X = await loadXLSX(); const wb = X.utils.book_new();
@@ -1520,6 +1520,7 @@ function mapMetal(v){ const s = norm(v).replace(/[^a-z]/g,"");
   if (["yg","yellowgold","gold","yellow"].includes(s)) return "YG";
   if (["ss","sterlingsilver","silver","sterling"].includes(s)) return "SS";
   if (["rg","rosegold","rose"].includes(s)) return "RG";
+  if (s.startsWith("brass")) return "brass";
   return s.startsWith("mix") ? "mixed" : ""; }
 function mapLines(v, prev){ const s = norm(v); if (!s) return prev || ["pj"]; if (s.includes("both")) return ["pj","kc"];
   const out = []; if (/pj|perm|jewel/.test(s)) out.push("pj"); if (/key|kc/.test(s)) out.push("kc");
