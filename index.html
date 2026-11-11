@@ -142,6 +142,7 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .clearq{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:var(--sunk);color:var(--muted);width:26px;height:26px;border-radius:50%;font:600 1rem/1 var(--f-body);cursor:pointer;display:grid;place-items:center;padding:0}
 .clearq:hover{color:var(--ink)}
 input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
+.tally{font:600 .8rem var(--f-body);color:var(--muted);letter-spacing:0;margin-left:6px;white-space:nowrap;vertical-align:middle}
 .thumb{width:46px;height:46px;border-radius:9px;flex:none;position:relative;background:var(--sunk);border:1px solid var(--line);padding:0;overflow:hidden;display:grid;place-items:center;cursor:pointer}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb .sw{position:absolute;right:3px;bottom:3px;width:10px;height:10px;box-shadow:0 0 0 1.5px var(--surface)}
@@ -440,6 +441,9 @@ const itemText = i => [i.name, i.style, i.notes, CAT[i.cat], METAL[i.metal], col
 const linkText = l => [l.title, l.shop, l.specs, l.notes, l.url, l.pack, METAL[l.metal], colourLabel(l.colour), FINISH[l.finish], l.karat ? KARAT[l.karat] : "", (l.lines||[]).map(x => LINE[x] || LINE_SHORT[x]).join(" ")].filter(Boolean).join(" ");
 const expText = x => [x.desc, x.shop, x.notes, x.who, x.pay, EXP_CAT[x.cat], linkById(x.linkId)?.title, itemById(x.itemId)?.name, splitText(x.split), x.currency, FINISH[x.finish], x.karat ? KARAT[x.karat] : ""].filter(Boolean).join(" ");
 
+// "13 items" or, when a search/filter is on, "3 of 13 items"
+const tally = (shown, total, one, many) => `<span class="tally num">${shown === total ? `${total} ${total === 1 ? one : many}` : `${shown} of ${total} ${total === 1 ? one : many}`}</span>`;
+
 function itemRow(it, withQty=true){
   const st = stockState(it);
   const pill = it.dead ? `<span class="pill uncounted">Dead stock</span>` : it.noRestock ? `<span class="pill uncounted">Not restocking</span>` : st==="low" ? `<span class="pill low">Low</span>` : st==="out" ? `<span class="pill out">Out</span>` : st==="uncounted" ? `<span class="pill uncounted">Not counted</span>` : "";
@@ -528,7 +532,7 @@ function vStock(){
   const order = {chain:0,jumpring:1,charm:2,spacer:3,findings:4,other:5};
   items.sort((a,b)=>(order[a.cat]-order[b.cat]) || a.name.localeCompare(b.name));
   return `<section>
-    <div class="sec-head"><h2>Stock</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${S.canWrite?`<button class="btn" data-a="lengths">Chain lengths</button>`:""}<button class="btn" data-a="excel">Excel</button>${addBtn("newItem","Add item")}</div></div>
+    <div class="sec-head"><h2>Stock ${f.cat === "dead" ? tally(items.length, S.items.filter(i => i.dead).length, "archived item", "archived items") : tally(items.length, S.items.filter(i => !i.dead).length, "item", "items")}</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${S.canWrite?`<button class="btn" data-a="lengths">Chain lengths</button>`:""}<button class="btn" data-a="excel">Excel</button>${addBtn("newItem","Add item")}</div></div>
     <div class="filters">
       <span class="searchwrap"><input id="q" type="search" placeholder="Search stock, e.g. rose 14k chain, birthstone" value="${esc(f.q)}" aria-label="Search stock"><button type="button" class="clearq" aria-label="Clear search" ${(f.q) ? "" : "hidden"}>×</button></span>
       ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["spacer","Spacers"],["findings","Findings"],["other","Other"],["norestock","Not restocking"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
@@ -567,7 +571,7 @@ function vSales(){
     return `<div class="monthhead"><span>${esc(monthLabel(k))}</span><span class="num">${g.length} sale${g.length===1?"":"s"} · ${money(t)}</span></div>` + g.map(saleRow).join("");
   }).join("");
   return `<section>
-    <div class="sec-head"><h2>Sales</h2>${addBtn("newSale","Log sale")}</div>
+    <div class="sec-head"><h2>Sales ${tally(list.length, S.sales.length, "sale", "sales")}</h2>${addBtn("newSale","Log sale")}</div>
     <div class="grid3">
       <label class="f">Month<select id="sfMonth"><option value="all">All months</option>${months.map(m=>`<option value="${m}" ${S.sf.month===m?"selected":""}>${esc(monthLabel(m))}</option>`).join("")}</select></label>
       <label class="f">Line<select id="sfLine"><option value="all">Both lines</option><option value="pj" ${S.sf.line==="pj"?"selected":""}>Permanent jewellery</option><option value="kc" ${S.sf.line==="kc"?"selected":""}>Keychain</option></select></label>
@@ -735,7 +739,7 @@ function vExpenses(){
   const byCat = Object.entries(EXP_CAT).map(([k,l]) => [l, sumAmt(list.filter(x=>x.cat===k))]).filter(([,v]) => v > 0);
   const tab = tabBalance();
   return `<section>
-    <div class="sec-head"><h2>Expenses</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newExp","Add expense")}</div></div>
+    <div class="sec-head"><h2>Expenses ${tally(list.length, S.expenses.length, "expense", "expenses")}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newExp","Add expense")}</div></div>
     ${S.expenses.length || S.settle.length ? tabBox(tab) : ""}
     ${(() => { const p = S.expenses.filter(isPending).sort(bySaleDesc); return p.length ? `<h3>Waiting for delivery</h3><div class="list">${p.map(expRow).join("")}</div><h3>All expenses</h3>` : ""; })()}
     <span class="searchwrap"><input id="eq" type="search" placeholder="Search expenses, e.g. chain, Taobao, welder, Valerie" value="${esc(S.eq || "")}" aria-label="Search expenses"><button type="button" class="clearq" aria-label="Clear search" ${(S.eq) ? "" : "hidden"}>×</button></span>
@@ -774,7 +778,7 @@ function vRestock(){
     </div>`;
   }).join("");
   return `<section>
-    <div class="sec-head"><h2>Restock</h2>${addBtn("newShop","Add to buy list")}</div>
+    <div class="sec-head"><h2>Restock <span class="tally num">${low.length} running low · ${S.shop.filter(x => !x.done).length} to buy</span></h2>${addBtn("newShop","Add to buy list")}</div>
     <h3>Running low (automatic)</h3>
     <p class="note">Items show here when the count drops to their “restock at” level.</p>
     <div class="list">${loading("items") || (low.length ? lowRows : `<div class="empty">All stocked up.</div>`)}</div>
@@ -819,7 +823,7 @@ function vLinks(){
     </div>`;
   }).join("");
   return `<section>
-    <div class="sec-head"><h2>Wishlist &amp; links</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newLink","Add link")}</div></div>
+    <div class="sec-head"><h2>Wishlist &amp; links ${tally(list.length, S.links.length, "link", "links")}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newLink","Add link")}</div></div>
     <span class="searchwrap"><input id="lq" type="search" placeholder="Search links, shops, specs, e.g. silver figaro" value="${esc(S.lq||"")}" aria-label="Search links"><button type="button" class="clearq" aria-label="Clear search" ${(S.lq) ? "" : "hidden"}>×</button></span>
     ${chipset("lline",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],lf)}
     ${chipset("lfav",[["all","All links"],["fav","★ Favourites"]],S.f.lfav||"all")}
