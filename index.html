@@ -137,6 +137,11 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .connList{max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
 .connItem{font-weight:500;color:var(--ink);font-size:.88rem}
 .connItem input:disabled{opacity:.6}
+.searchwrap{position:relative;display:flex;min-width:0}
+.searchwrap input{padding-right:38px;width:100%}
+.clearq{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:var(--sunk);color:var(--muted);width:26px;height:26px;border-radius:50%;font:600 1rem/1 var(--f-body);cursor:pointer;display:grid;place-items:center;padding:0}
+.clearq:hover{color:var(--ink)}
+input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
 .thumb{width:46px;height:46px;border-radius:9px;flex:none;position:relative;background:var(--sunk);border:1px solid var(--line);padding:0;overflow:hidden;display:grid;place-items:center;cursor:pointer}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb .sw{position:absolute;right:3px;bottom:3px;width:10px;height:10px;box-shadow:0 0 0 1.5px var(--surface)}
@@ -525,7 +530,7 @@ function vStock(){
   return `<section>
     <div class="sec-head"><h2>Stock</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${S.canWrite?`<button class="btn" data-a="lengths">Chain lengths</button>`:""}<button class="btn" data-a="excel">Excel</button>${addBtn("newItem","Add item")}</div></div>
     <div class="filters">
-      <input id="q" type="search" placeholder="Search stock, e.g. rose 14k chain, birthstone" value="${esc(f.q)}" aria-label="Search stock">
+      <span class="searchwrap"><input id="q" type="search" placeholder="Search stock, e.g. rose 14k chain, birthstone" value="${esc(f.q)}" aria-label="Search stock"><button type="button" class="clearq" aria-label="Clear search" ${(f.q) ? "" : "hidden"}>×</button></span>
       ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["spacer","Spacers"],["findings","Findings"],["other","Other"],["norestock","Not restocking"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["gold","Gold"],["SS","Sterling silver"],["PT","Platinum"],["brass","Brass"],["unsure","Unsure"]],f.metal)}
       ${chipset("colour",[["all","All colours"],["Yellow","Yellow","YG"],["Silver","Silver","SS"],["Rose gold","Rose gold","RG"],["White","White","WH"],["unsure","Unsure"]],f.colour||"all")}
@@ -733,7 +738,7 @@ function vExpenses(){
     <div class="sec-head"><h2>Expenses</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newExp","Add expense")}</div></div>
     ${S.expenses.length || S.settle.length ? tabBox(tab) : ""}
     ${(() => { const p = S.expenses.filter(isPending).sort(bySaleDesc); return p.length ? `<h3>Waiting for delivery</h3><div class="list">${p.map(expRow).join("")}</div><h3>All expenses</h3>` : ""; })()}
-    <input id="eq" type="search" placeholder="Search expenses, e.g. chain, Taobao, welder, Valerie" value="${esc(S.eq || "")}" aria-label="Search expenses">
+    <span class="searchwrap"><input id="eq" type="search" placeholder="Search expenses, e.g. chain, Taobao, welder, Valerie" value="${esc(S.eq || "")}" aria-label="Search expenses"><button type="button" class="clearq" aria-label="Clear search" ${(S.eq) ? "" : "hidden"}>×</button></span>
     <div class="grid3">
       <label class="f">Month<select id="efMonth"><option value="all">All months</option>${months.map(m=>`<option value="${m}" ${f.month===m?"selected":""}>${esc(monthLabel(m))}</option>`).join("")}</select></label>
       <label class="f">Type<select id="efCat"><option value="all">All types</option>${Object.entries(EXP_CAT).map(([k,l])=>`<option value="${k}" ${f.cat===k?"selected":""}>${esc(l)}</option>`).join("")}</select></label>
@@ -760,7 +765,7 @@ function vRestock(){
   }).join("");
   const shopRows = shop.map(s => {
     const l = linkById(s.linkId) || linkById(itemById(s.itemId)?.linkId); const u = l && safeUrl(l.url);
-    return `<div class="row ${s.done?"done":""}">
+    return `<div class="row${s.done ? " done" : ""}${l ? "" : " nolink"}">
       <input type="checkbox" class="check" data-a="tick" data-id="${s.id}" ${s.done?"checked":""} ${S.canWrite?"":"disabled"} aria-label="Bought ${esc(s.text)}">
       <div class="main"><div class="title">${esc(s.text)}${s.qty?` <span class="pill uncounted">${esc(s.qty)}</span>`:""}</div>
         <div class="sub">${[(s.who||s.by)?"added by "+(s.who||nameOf(s.by)):"", s.done&&(s.doneWho||s.doneBy)?"bought by "+(s.doneWho||nameOf(s.doneBy)):""].filter(Boolean).map(esc).join(" · ")}</div></div>
@@ -815,7 +820,7 @@ function vLinks(){
   }).join("");
   return `<section>
     <div class="sec-head"><h2>Wishlist &amp; links</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="excel">Excel</button>${addBtn("newLink","Add link")}</div></div>
-    <input id="lq" type="search" placeholder="Search links, shops, specs, e.g. silver figaro" value="${esc(S.lq||"")}" aria-label="Search links">
+    <span class="searchwrap"><input id="lq" type="search" placeholder="Search links, shops, specs, e.g. silver figaro" value="${esc(S.lq||"")}" aria-label="Search links"><button type="button" class="clearq" aria-label="Clear search" ${(S.lq) ? "" : "hidden"}>×</button></span>
     ${chipset("lline",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],lf)}
     ${chipset("lfav",[["all","All links"],["fav","★ Favourites"]],S.f.lfav||"all")}
     ${chipset("lfin",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"],["unsure","Unsure"]],S.f.lfin||"all")}
@@ -1104,7 +1109,7 @@ function expenseForm(x, preset){
       ${delivered
         ? (tgt.item && x.qty ? `<p class="note">Delivered${x.deliveredAt ? " on " + esc(new Date(x.deliveredAt).toLocaleDateString("en-SG",{day:"numeric",month:"short"})) : ""}: ${esc(fmtQ(tgt.item, x.qty))} of ${esc(tgt.item.name)} went into stock. Editing here doesn't change stock again.</p>` : "")
         : `<div class="f" id="expStock">Product link (optional)
-            <div class="xl-row"><input type="search" id="expSrcQ" placeholder="Type to find a link…" aria-label="Find a product link" style="flex:1 1 160px"><span class="note" id="expSrcHint"></span></div>
+            <div class="xl-row"><span class="searchwrap" style="flex:1 1 160px"><input type="search" id="expSrcQ" placeholder="Type to find a link…" aria-label="Find a product link"><button type="button" class="clearq" aria-label="Clear search" hidden>×</button></span><span class="note" id="expSrcHint"></span></div>
             <select name="src" id="expSrc" aria-label="Product link or stock item">${srcOpts}</select>
             <label class="keep" id="expDelRow" hidden><input type="checkbox" name="delivered"> Already delivered (add to stock now)</label>
             <span style="font-weight:400" id="expSrcNote"></span>
@@ -1425,7 +1430,7 @@ function linkForm(l){
       <label class="f">Colour<select name="colour">${colourOpts(e.colour, true)}</select></label>
       <label class="keep"><input type="checkbox" name="connector" ${e.connector?"checked":""}> Connector charm (joins two ends of a chain)</label>
       <div class="f">Connect to stock items (optional)
-        <div class="xl-row"><input type="search" class="itemQ" placeholder="Type to find stock items…" aria-label="Find stock items" style="flex:1 1 140px"><span class="note itemHint"></span></div>
+        <div class="xl-row"><span class="searchwrap" style="flex:1 1 140px"><input type="search" class="itemQ" placeholder="Type to find stock items…" aria-label="Find stock items"><button type="button" class="clearq" aria-label="Clear search" hidden>×</button></span><span class="note itemHint"></span></div>
         <div class="connList">${[...S.items].filter(i => !i.dead).sort((a,b) => ((l && b.linkId === l.id) ? 1 : 0) - ((l && a.linkId === l.id) ? 1 : 0) || a.name.localeCompare(b.name)).map(i =>
           `<label class="keep connItem" data-name="${esc(i.name + " " + (i.colour || ""))}"><input type="checkbox" name="forItem" value="${i.id}" ${l && i.linkId === l.id ? "checked disabled" : ""}> ${esc(i.name)}${i.colour ? ` <span class="pill uncounted">${esc(colourLabel(i.colour))}</span>` : ""}${i.linkId && !(l && i.linkId === l.id) ? ` <span class="note">(has another link)</span>` : ""}</label>`).join("") || `<span class="note">No stock items yet.</span>`}</div>
         <span style="font-weight:400">Tick every item that comes from this link, e.g. each colour of a mixed bag. Ticked items are connected and get their missing finish, karat, details, cost per unit and photo filled in. Already-connected items are ticked and greyed.</span>
@@ -1963,6 +1968,16 @@ document.addEventListener("click", async ev => {
     }
   }
 });
+document.addEventListener("click", ev => {
+  const b = ev.target.closest(".clearq"); if (!b) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const inp = b.parentElement.querySelector("input"); inp.value = ""; b.hidden = true;
+  inp.dispatchEvent(new Event("input", {bubbles: true}));
+  const again = inp.id ? document.getElementById(inp.id) : inp; again && again.focus();
+}, true);
+document.addEventListener("input", ev => {
+  const w = ev.target.closest && ev.target.closest(".searchwrap"); if (w) { const b = w.querySelector(".clearq"); if (b) b.hidden = !ev.target.value; }
+}, true);
 document.addEventListener("keydown", ev => {
   if (ev.key==="Escape" && $("#sheetRoot").innerHTML) closeSheet();
   if ((ev.key==="Enter"||ev.key===" ") && ev.target.matches('[role=button][data-a]')) { ev.preventDefault(); ev.target.click(); }
