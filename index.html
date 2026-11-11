@@ -447,6 +447,7 @@ function saleRow(s){
   const seller = s.who || (s.by ? nameOf(s.by) : "");
   const sub = [fmtDate(s.date), s.pay, s.customer, seller ? "by "+seller : ""].filter(Boolean).map(esc).join(" · ");
   return `<div class="row clickable" data-a="editSale" data-id="${s.id}" role="button" tabindex="0">
+    ${s.photo ? thumb(s.photo, "", "the sale") : ""}
     <div class="main">
       <div class="title"><span class="pill ${s.line}">${LINE_SHORT[s.line]||""}</span> ${esc(s.product||"Sale")}${s.desc?` <span style="font-weight:400;color:var(--muted)">— ${esc(s.desc)}</span>`:""}</div>
       <div class="sub">${sub}</div>
@@ -941,6 +942,7 @@ function saleForm(s){
         ${s ? `<span style="font-weight:400">${s.deducted?"These were taken off stock when the sale was logged. Edits here don't change stock.":"Stock wasn't changed for this sale."}</span>`
             : `<label style="display:flex;gap:6px;align-items:center;font-weight:500;color:var(--ink)"><input type="checkbox" name="deduct" checked style="width:auto"> Take these off stock</label>`}
       </div>
+      ${photoField(e.photo)}
       <div class="actions">${s?`<span style="display:flex;gap:8px;flex-wrap:wrap">${delBtn(true)}${s.deducted?`<button type="button" class="btn danger" data-a="armDel" data-restore="1">Delete &amp; return stock</button>`:""}</span>`:"<span></span>"}
         <div class="r"><button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`, async (fd, form) => {
@@ -950,7 +952,7 @@ function saleForm(s){
       its.forEach((id,i)=>{ const q=numOrNull(qs[i]); if(id && q) used.push({itemId:id, qty: isM(itemById(id)) ? q/100 : q}); });
       const listP = numOrNull(fd.get("price")) || 0, disc = Math.min(Math.max(0, numOrNull(fd.get("discount")) || 0), listP);
       const data = {date:fd.get("date"), line:fd.get("line"), product:fd.get("product"), price:Math.round((listP - disc) * 100) / 100,
-        listPrice:listP, discount:disc, discountFor:(fd.get("discountFor")||"").trim(),
+        listPrice:listP, discount:disc, discountFor:(fd.get("discountFor")||"").trim(), photo:fd.get("photo")||"",
         desc:fd.get("desc").trim(), pay:fd.get("pay"), customer:fd.get("customer").trim(), used, who:fd.get("who")||""};
       if (s) { await S.db.collection("sales").doc(s.id).update({...data, ...stamp()}); toast("Sale updated"); logAct(`edited a sale: ${data.product}, ${money(data.price)}`); return; }
       const deduct = !!fd.get("deduct") && used.length > 0;
@@ -961,6 +963,7 @@ function saleForm(s){
     }, form => {
       const lineSel = form.querySelector("#saleLine"), prodSel = form.querySelector("#saleProduct");
       const fill = (cur) => { const list = PRODUCTS[lineSel.value]; prodSel.innerHTML = list.map(p=>`<option ${p===cur?"selected":""}>${p}</option>`).join(""); };
+      bindPhoto(form);
       fill(e.product); lineSel.addEventListener("change", () => fill());
       const pEl = form.querySelector("[name=price]"), dEl = form.querySelector("[name=discount]"), paidEl = form.querySelector("#salePaid");
       const showPaid = () => { const pr = numOrNull(pEl.value), d = Math.min(numOrNull(dEl.value) || 0, pr || 0);
@@ -1423,7 +1426,7 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
 const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish","Connector","Karat","No restock"];
 const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish","Favourite","Connector","Karat"];
 const EXP_COLS = ["ID","Date","Type","Item","Product link","Quantity","Unit","Delivered","Amount","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes","Finish","Karat"];
-const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Discount (S$)","Discount for","Paid (S$)","Payment","Customer / event","Materials used","Sold by"];
+const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Discount (S$)","Discount for","Paid (S$)","Payment","Customer / event","Materials used","Sold by","Photo"];
 const HELP = [
   "momento.co stock book spreadsheet", "Co-owned by Jessica & Valerie", "",
   "HOW TO USE",
@@ -1472,7 +1475,7 @@ async function buildWorkbook(){
     "Date":s.date||"", "Line":LINE[s.line]||"", "Product":s.product||"", "Details":s.desc||"", "Price (S$)":s.listPrice ?? (Number(s.price)||0), "Discount (S$)":s.discount || "", "Discount for":s.discountFor || "", "Paid (S$)":Number(s.price)||0,
     "Payment":s.pay||"", "Customer / event":s.customer||"",
     "Materials used":(s.used||[]).map(u => { const it = itemById(u.itemId); return it ? fmtUse(it,u.qty)+" "+it.name : null; }).filter(Boolean).join(", "),
-    "Sold by": s.who || (!s.by ? "" : s.by === S.me ? (S.myName || "") : nameOf(s.by))}));
+    "Sold by": s.who || (!s.by ? "" : s.by === S.me ? (S.myName || "") : nameOf(s.by)), "Photo": s.photo ? photoSrc(s.photo) : ""}));
   const add = (rows, cols, widths, name) => { const ws = X.utils.json_to_sheet(rows, {header:cols}); ws["!cols"] = widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb, ws, name); };
   add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30,10,12,11,8,11], "Stock");
   add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30,40,12,10,11,8], "Links");
@@ -1486,7 +1489,7 @@ async function buildWorkbook(){
       "Paid by":x.who||"", "Payment":x.pay||"", "Shop / supplier":x.shop||"", "Notes":x.notes||"", "Finish": x.finish ? FINISH[x.finish] : "", "Karat": x.karat ? KARAT[x.karat] : ""};
   });
   add(exps, EXP_COLS, [22,11,22,36,32,11,6,10,11,9,12,10,10,20,30,12,8], "Expenses");
-  add(sales, SALES_COLS, [11,20,16,36,10,12,20,10,10,18,42,14], "Sales");
+  add(sales, SALES_COLS, [11,20,16,36,10,12,20,10,10,18,42,14,40], "Sales");
   if (S.deadstock.length) add([...S.deadstock].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(x => ({"Date":x.date||"", "Item":x.name||"", "Qty":x.qty, "Unit":x.unit||"",
     "Reason":WRITE_OFF[x.reason]||"", "Value at cost (S$)":x.value ?? "", "By":x.who||""})), ["Date","Item","Qty","Unit","Reason","Value at cost (S$)","By"], [11,36,8,6,14,16,10], "Dead stock");
   const help = X.utils.aoa_to_sheet(HELP.map(l=>[l])); help["!cols"] = [{wch:110}];
