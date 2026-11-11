@@ -117,6 +117,9 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--line)}
 .row:first-child{border-top:0}
 .row.nolink{background:var(--nolink-bg)}
+.norestock{display:flex;align-items:center;gap:4px;font-size:.7rem;color:var(--muted);white-space:nowrap;flex:none;cursor:pointer}
+.norestock input{width:16px;height:16px;margin:0;accent-color:var(--primary)}
+.rowend{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
 .row.due{background:var(--due-bg)}
 .row.nolink .main.clickable:hover,.row.due .main.clickable:hover{background:transparent}
 .key{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
@@ -315,8 +318,9 @@ function stockState(it){
   if (it.lowAt != null && it.qty <= it.lowAt) return "low";
   return "ok";
 }
-const needsRestock = () => S.items.filter(i => !i.dead && ["low","out"].includes(stockState(i)));
-const KARAT = {"":"Not set", "14":"14ct", "18":"18ct", "24":"24ct"};
+const needsRestock = () => S.items.filter(i => !i.dead && !i.noRestock && ["low","out"].includes(stockState(i)));
+const KARAT = {"":"Not set", "14":"14K", "18":"18K", "24":"24K"};
+const karatOpts = cur => [["","Not set"],["14","14K"],["18","18K"],["24","24K"]].map(([k,l]) => `<option value="${k}" ${k===cur?"selected":""}>${l}</option>`).join("");
 // "14K", "14ct", "14 kt", "585" → "14"; "18K", "750" → "18"; "24K", "999" → "24"
 function mapKarat(v){ const t = String(v ?? "").toLowerCase(); const m = t.match(/\b(14|18|24)\s*(k|kt|ct|karat|carat)?\b/); if (m && (m[2] || /^\s*(14|18|24)\s*$/.test(t))) return m[1];
   if (/\b585\b/.test(t)) return "14"; if (/\b750\b/.test(t)) return "18"; if (/\b(999|24k)\b/.test(t)) return "24"; return ""; }
@@ -415,23 +419,26 @@ function viewPhoto(id){
 
 function itemRow(it, withQty=true){
   const st = stockState(it);
-  const pill = it.dead ? `<span class="pill uncounted">Dead stock</span>` : st==="low" ? `<span class="pill low">Low</span>` : st==="out" ? `<span class="pill out">Out</span>` : st==="uncounted" ? `<span class="pill uncounted">Not counted</span>` : "";
+  const pill = it.dead ? `<span class="pill uncounted">Dead stock</span>` : it.noRestock ? `<span class="pill uncounted">Not restocking</span>` : st==="low" ? `<span class="pill low">Low</span>` : st==="out" ? `<span class="pill out">Out</span>` : st==="uncounted" ? `<span class="pill uncounted">Not counted</span>` : "";
   const lines = (it.lines||[]).map(l=>`<span class="pill ${l}">${LINE_SHORT[l]}</span>`).join("");
   const fin = (it.karat ? `<span class="pill fin">${esc(KARAT[it.karat])}</span> ` : "") + (it.finish ? `<span class="pill fin">${esc(FINISH[it.finish])}</span>` : "");
   const sub = [CAT[it.cat], it.style, it.cost!=null ? money(it.cost)+" / "+(it.unit||"pc") : ""].filter(Boolean).map(esc).join(" · ");
   const q = it.qty==null ? "—" : (Math.round(it.qty*100)/100);
-  const shade = !it.dead && (st === "low" || st === "out") ? " due" : (it.linkId && linkById(it.linkId)) ? "" : " nolink";
+  const shade = !it.dead && !it.noRestock && (st === "low" || st === "out") ? " due" : (it.linkId && linkById(it.linkId)) ? "" : " nolink";
   return `<div class="row${shade}">
     ${thumb(it.photo, it.metal, it.name)}
     <div class="main clickable" data-a="editItem" data-id="${it.id}" role="button" tabindex="0">
       <div class="title">${esc(it.name)} ${lines} ${fin} ${it.connector ? `<span class="pill fin">Connector</span>` : ""} ${pill}</div>
       <div class="sub">${sub}${isM(it)&&it.qty!=null?` · ${Math.round(it.qty*100)} cm left`:""}${it.lowAt!=null?` · restock at ${esc(it.lowAt)} ${esc(it.unit||"")}`:""}</div>
     </div>
+    <div class="rowend">
     ${it.dead && S.canWrite ? `<button type="button" class="btn small" data-a="unarchive" data-id="${it.id}">Restore</button>` : withQty ? `<div class="qty">
       ${S.canWrite?`<button data-a="dec" data-id="${it.id}" aria-label="Use ${isM(it)?"10 cm of":"one"} ${esc(it.name)}">−</button>`:""}
       <span class="v">${q}<small>${esc(it.unit||"")}</small></span>
       ${S.canWrite?`<button data-a="inc" data-id="${it.id}" aria-label="Add ${isM(it)?"10 cm of":"one"} ${esc(it.name)}">+</button>`:""}
     </div>` : ""}
+    ${!it.dead && withQty && S.canWrite ? `<label class="norestock" title="Tick if you won't buy this again"><input type="checkbox" data-a="noRestock" data-id="${it.id}" ${it.noRestock ? "checked" : ""}> Don't restock</label>` : ""}
+    </div>
   </div>`;
 }
 
@@ -491,7 +498,7 @@ function chipset(group, opts, cur){
 function vStock(){
   const f = S.f;
   let items = S.items.filter(i =>
-    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || (f.cat==="connector" ? i.cat==="charm" && !!i.connector : i.cat===f.cat))) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) && (!f.karat || f.karat==="all" || (i.karat||"")===f.karat) &&
+    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || (f.cat==="connector" ? i.cat==="charm" && !!i.connector : f.cat==="norestock" ? !!i.noRestock : i.cat===f.cat))) && (f.metal==="all"||i.metal===f.metal) && (!f.finish || f.finish==="all" || (i.finish||"")===f.finish) && (!f.karat || f.karat==="all" || (i.karat||"")===f.karat) &&
     (f.line==="all"||(i.lines||[]).includes(f.line)) &&
     (!f.q || (i.name+" "+(i.style||"")+" "+(i.notes||"")).toLowerCase().includes(f.q.toLowerCase())));
   const order = {chain:0,jumpring:1,charm:2,findings:3,other:4};
@@ -500,14 +507,14 @@ function vStock(){
     <div class="sec-head"><h2>Stock</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${S.canWrite?`<button class="btn" data-a="lengths">Chain lengths</button>`:""}<button class="btn" data-a="excel">Excel</button>${addBtn("newItem","Add item")}</div></div>
     <div class="filters">
       <input id="q" type="search" placeholder="Search stock (e.g. birthstone, double-sided)" value="${esc(f.q)}" aria-label="Search stock">
-      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["findings","Findings"],["other","Other"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
+      ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["findings","Findings"],["other","Other"],["norestock","Not restocking"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["YG","YG","YG"],["SS","SS","SS"],["RG","RG","RG"]],f.metal)}
       ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],f.finish||"all")}
-      ${chipset("karat",[["all","All karats"],["14","14ct"],["18","18ct"],["24","24ct"]],f.karat||"all")}
+      ${chipset("karat",[["all","All karats"],["14","14K"],["18","18K"],["24","24K"]],f.karat||"all")}
       ${chipset("line",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],f.line)}
     </div>
     ${f.cat === "dead" ? `<p class="note">The archive keeps dead stock out of your main list and restock alerts. Tap Restore to bring an item back, or open it to write off more pieces.</p>`
-      : `<div class="key" aria-label="Colour key"><span><i style="background:var(--nolink-bg)"></i>No supplier link yet</span><span><i style="background:var(--due-bg)"></i>Restock due (low or out)</span></div>
+      : `<div class="key" aria-label="Colour key"><span><i style="background:var(--nolink-bg)"></i>No supplier link yet</span><span><i style="background:var(--due-bg)"></i>Restock due (low or out)</span><span>Tick “Don't restock” to stop reminders for an item</span></div>
       <p class="note">Tap − / + to use or add one unit. Tap an item to edit its count, restock level or supplier link. Charms can be tagged for both lines, or Unsure if you haven't decided. Dead stock lives in the Archive.</p>`}
     <div class="list">${loading("items") || (items.length ? items.map(i=>itemRow(i)).join("") : `<div class="empty">${f.cat === "dead" ? "Nothing archived. To archive an item, open it and tick “Move to archive (dead stock)”." : S.items.length?"No items match these filters.":"No stock yet. Add your chains, jump rings and charms with “Add item”."}</div>`)}</div>
     ${(() => {
@@ -754,7 +761,7 @@ function vLinks(){
     ${chipset("lline",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],lf)}
     ${chipset("lfav",[["all","All links"],["fav","★ Favourites"]],S.f.lfav||"all")}
     ${chipset("lfin",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"]],S.f.lfin||"all")}
-    ${chipset("lkar",[["all","All karats"],["14","14ct"],["18","18ct"],["24","24ct"]],S.f.lkar||"all")}
+    ${chipset("lkar",[["all","All karats"],["14","14K"],["18","18K"],["24","24K"]],S.f.lkar||"all")}
     <p class="note">Save where you buy each supply and its exact specs (metal, gauge, chain style, length, pack size), so either of you can reorder the same thing.</p>
     <div class="list">${loading("links") || (list.length ? rows : `<div class="empty">${S.links.length?"No links match.":"No links yet. Add the shop listing for a chain or charm with “Add link”."}</div>`)}</div>
   </section>`;
@@ -844,7 +851,7 @@ function itemForm(it){
       </div>
       <div class="grid2">
         <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
-        <label class="f">Gold karat<select name="karat">${opt(KARAT,e.karat||"")}</select></label>
+        <label class="f">Gold karat<select name="karat">${karatOpts(e.karat||"")}</select></label>
       </div>
       <label class="keep connRow"><input type="checkbox" name="connector" ${e.connector?"checked":""}> Connector charm (joins two ends of a chain)</label>
       <label class="f">Style / details<input name="style" value="${esc(e.style)}" placeholder="e.g. double-sided, birthstone, paperclip chain, 4mm"></label>
@@ -1021,7 +1028,7 @@ function expenseForm(x, preset){
         <label class="f">Item<input name="desc" required value="${esc(e.desc)}" placeholder="e.g. 5 m SS chain, welder"></label>
         <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
       </div>
-      <label class="f">Gold karat<select name="karat">${opt(KARAT,e.karat||"")}</select></label>
+      <label class="f">Gold karat<select name="karat">${karatOpts(e.karat||"")}</select></label>
       <div class="grid2">
         <label class="f">Type<select name="cat" id="expCat">${opt(EXP_CAT,e.cat)}</select></label>
         <label class="f">Paid by<select name="who">${PAYERS.map(p=>`<option ${p===(e.who||S.who)?"selected":""}>${p}</option>`).join("")}</select></label>
@@ -1327,7 +1334,7 @@ function linkForm(l){
       </div>
       <div class="grid2">
         <label class="f">Finish<select name="finish">${opt(FINISH,e.finish||"")}</select></label>
-        <label class="f">Gold karat<select name="karat">${opt(KARAT,e.karat||"")}</select></label>
+        <label class="f">Gold karat<select name="karat">${karatOpts(e.karat||"")}</select></label>
       </div>
       <label class="keep"><input type="checkbox" name="connector" ${e.connector?"checked":""}> Connector charm (joins two ends of a chain)</label>
       <div class="f">Connect to a stock item (optional)
@@ -1413,7 +1420,7 @@ const loadXLSX = () => xlsxP ||= new Promise((res, rej) => {
   s.onerror = () => { xlsxP = null; rej(new Error("load")); };
   document.head.appendChild(s);
 });
-const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish","Connector","Karat"];
+const STOCK_COLS = ["ID","Name","Type","Metal","Style / details","Used for","In stock","Unit","Restock at","Cost per unit (S$)","Supplier link","Notes","Dead stock","Finish","Connector","Karat","No restock"];
 const LINK_COLS = ["ID","Product name","Link","Shop","Metal","Used for","Price","Currency","Pack size","Specifications","Notes","Photo","Finish","Favourite","Connector","Karat"];
 const EXP_COLS = ["ID","Date","Type","Item","Product link","Quantity","Unit","Delivered","Amount","Currency","Paid (S$)","Paid by","Payment","Shop / supplier","Notes","Finish","Karat"];
 const SALES_COLS = ["Date","Line","Product","Details","Price (S$)","Discount (S$)","Discount for","Paid (S$)","Payment","Customer / event","Materials used","Sold by"];
@@ -1429,7 +1436,8 @@ const HELP = [
   "Metal: YG, SS, RG, Mixed (or blank)",
   "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
   "Connector (Stock and Links): Yes for connector charms that join two ends of a chain.",
-  "Karat (Stock, Links and Expenses): 14ct, 18ct or 24ct (or blank). 14K / 585 and 18K / 750 also work.",
+  "No restock (Stock sheet): Yes for items you won't buy again. They stay in stock but never show as running low.",
+  "Karat (Stock, Links and Expenses): 14K, 18K or 24K (or blank). 14ct, 585 and 750 also work.",
   "Used for: PJ, Keychain, Both or Unsure",
   "Unit: m, cm, pcs, inch, ft. Keep chains in m (metres).",
   "Dead stock (Stock sheet): Yes moves the item to the Archive (no restock alerts). To write off damaged or lost pieces, use the item's edit screen in the app.",
@@ -1456,7 +1464,7 @@ async function buildWorkbook(){
   const stock = [...S.items].sort((a,b)=>(order[a.cat]-order[b.cat]) || a.name.localeCompare(b.name)).map(i => ({
     "ID":i.id, "Name":i.name, "Type":CAT[i.cat]||"", "Metal":metalText(i.metal), "Style / details":i.style||"", "Used for":linesText(i.lines),
     "In stock":i.qty ?? "", "Unit":i.unit||"", "Restock at":i.lowAt ?? "", "Cost per unit (S$)":i.cost ?? "",
-    "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||"", "Dead stock": i.dead ? "Yes" : "", "Finish": i.finish ? FINISH[i.finish] : "", "Connector": i.connector ? "Yes" : "", "Karat": i.karat ? KARAT[i.karat] : ""}));
+    "Supplier link":linkById(i.linkId)?.title||"", "Notes":i.notes||"", "Dead stock": i.dead ? "Yes" : "", "Finish": i.finish ? FINISH[i.finish] : "", "Connector": i.connector ? "Yes" : "", "Karat": i.karat ? KARAT[i.karat] : "", "No restock": i.noRestock ? "Yes" : ""}));
   const links = [...S.links].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(l => ({
     "ID":l.id, "Product name":l.title||"", "Link":l.url||"", "Shop":l.shop||"", "Metal":metalText(l.metal), "Used for":linesText(l.lines),
     "Price":l.price ?? "", "Currency":l.priceCur || "SGD", "Pack size":l.pack||"", "Specifications":l.specs||"", "Notes":l.notes||"", "Photo":l.photo ? photoSrc(l.photo) : "", "Finish": l.finish ? FINISH[l.finish] : "", "Favourite": l.fav ? "Yes" : "", "Connector": l.connector ? "Yes" : "", "Karat": l.karat ? KARAT[l.karat] : ""}));
@@ -1466,7 +1474,7 @@ async function buildWorkbook(){
     "Materials used":(s.used||[]).map(u => { const it = itemById(u.itemId); return it ? fmtUse(it,u.qty)+" "+it.name : null; }).filter(Boolean).join(", "),
     "Sold by": s.who || (!s.by ? "" : s.by === S.me ? (S.myName || "") : nameOf(s.by))}));
   const add = (rows, cols, widths, name) => { const ws = X.utils.json_to_sheet(rows, {header:cols}); ws["!cols"] = widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb, ws, name); };
-  add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30,10,12,11,8], "Stock");
+  add(stock, STOCK_COLS, [22,36,12,8,30,11,9,6,10,16,32,30,10,12,11,8,11], "Stock");
   add(links, LINK_COLS, [22,36,42,18,8,11,10,9,12,46,30,40,12,10,11,8], "Links");
   const exps = [...S.expenses].sort(bySaleDesc).map(x => {
     const {link, item} = stockTarget(x);
@@ -1699,6 +1707,7 @@ async function planImport(file){
       qty:numCell(pick(r,"in stock","qty","quantity")), unit:mapUnit(pick(r,"unit"), ex?.unit), lowAt:numCell(pick(r,"restock at")),
       cost:numCell(pick(r,"cost per unit","cost")), linkId, notes:txt(pick(r,"notes")),
       dead: /^(y|yes|true|1|dead)$/.test(norm(pick(r,"dead stock"))), finish: mapFinish(pick(r,"finish")), karat: mapKarat(pick(r,"karat","carat","ct")),
+      noRestock: /^(y|yes|true|1)$/.test(norm(pick(r,"no restock","don't restock","dont restock"))),
       connector: /^(y|yes|true|1|connector)$/.test(norm(pick(r,"connector")))};
     if (data.connector && data.cat !== "charm") data.connector = false;
     const id = ex ? ex.id : S.db.collection("items").doc().id;
@@ -1784,6 +1793,12 @@ document.addEventListener("click", async ev => {
     case "newExp": expenseForm(); break;
     case "newPayback": paybackForm(); break;
     case "editPayback": if (S.canWrite) paybackForm(S.settle.find(x => x.id === id)); break;
+    case "noRestock": {
+      const it = itemById(id); if (!it) break;
+      try { await S.db.collection("items").doc(id).update({noRestock: t.checked, ...stamp()}); toast(t.checked ? `${it.name}: won't remind you to restock` : `${it.name}: restock reminders back on`); logAct(`${t.checked ? "stopped restocking" : "will restock"} ${it.name}`); }
+      catch(err) { t.checked = !t.checked; toast(writeError(err)); }
+      break;
+    }
     case "editWO": if (S.canWrite) woForm(S.deadstock.find(d => d.id === id)); break;
     case "unarchive": {
       const it = itemById(id); if (!it) break;
