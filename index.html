@@ -522,7 +522,7 @@ function chipset(group, opts, cur){
 function vStock(){
   const f = S.f;
   let items = S.items.filter(i =>
-    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || (f.cat==="connector" ? i.cat==="charm" && !!i.connector : f.cat==="norestock" ? !!i.noRestock : i.cat===f.cat))) && (f.metal==="all"||(f.metal==="gold" ? ["gold","YG","RG"].includes(i.metal) : f.metal==="unsure" ? isBlank(i.metal) : i.metal===f.metal)) && (!f.colour || f.colour==="all" || (f.colour==="unsure" ? isBlank(i.colour) : (i.colour||"")===f.colour)) && (!f.finish || f.finish==="all" || (f.finish==="unsure" ? isBlank(i.finish) : (i.finish||"")===f.finish)) && (!f.karat || f.karat==="all" || (f.karat==="unsure" ? isBlank(i.karat) : (i.karat||"")===f.karat)) &&
+    (f.cat==="dead" ? !!i.dead : !i.dead && (f.cat==="all" || (f.cat==="connector" ? i.cat==="charm" && !!i.connector : f.cat==="norestock" ? !!i.noRestock : i.cat===f.cat))) && (f.metal==="all"||(f.metal==="gold" ? ["gold","YG","RG"].includes(i.metal) : f.metal==="unsure" ? isBlank(i.metal) : i.metal===f.metal)) && (!f.colour || f.colour==="all" || (f.colour==="unsure" ? isBlank(i.colour) : f.colour==="Silver" ? ["Silver","White"].includes(i.colour) : (i.colour||"")===f.colour)) && (!f.finish || f.finish==="all" || (f.finish==="unsure" ? isBlank(i.finish) : (i.finish||"")===f.finish)) && (!f.karat || f.karat==="all" || (f.karat==="unsure" ? isBlank(i.karat) : (i.karat||"")===f.karat)) &&
     (f.line==="all"||(i.lines||[]).includes(f.line)) &&
     searchHit(itemText(i), f.q));
   const order = {chain:0,jumpring:1,charm:2,spacer:3,findings:4,other:5};
@@ -533,7 +533,7 @@ function vStock(){
       <span class="searchwrap"><input id="q" type="search" placeholder="Search stock, e.g. rose 14k chain, birthstone" value="${esc(f.q)}" aria-label="Search stock"><button type="button" class="clearq" aria-label="Clear search" ${(f.q) ? "" : "hidden"}>×</button></span>
       ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["spacer","Spacers"],["findings","Findings"],["other","Other"],["norestock","Not restocking"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["gold","Gold"],["SS","Sterling silver"],["PT","Platinum"],["brass","Brass"],["unsure","Unsure"]],f.metal)}
-      ${chipset("colour",[["all","All colours"],["Yellow","Yellow","YG"],["Silver","Silver","SS"],["Rose gold","Rose gold","RG"],["White","White","WH"],["unsure","Unsure"]],f.colour||"all")}
+      ${chipset("colour",[["all","All colours"],["Yellow","Yellow","YG"],["Silver","Silver / white","SS"],["Rose gold","Rose gold","RG"],["unsure","Unsure"]],f.colour||"all")}
       ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"],["unsure","Unsure"]],f.finish||"all")}
       ${chipset("karat",[["all","All karats"],["14","14K"],["16","16K"],["18","18K"],["24","24K"],["unsure","Unsure"]],f.karat||"all")}
       ${chipset("line",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],f.line)}
@@ -636,17 +636,17 @@ async function deliver(expId){
 }
 
 // Colour = the tone of the piece
-const COLOURS = ["Yellow","Silver","Rose gold","White"];
-const COLOUR_LABEL = {Yellow:"Yellow", Silver:"Silver", "Rose gold":"Rose gold", White:"White", Mixed:"Mixed", unsure:"Unsure"};
+const COLOURS = ["Yellow","Silver","Rose gold"];
+const COLOUR_LABEL = {Yellow:"Yellow", Silver:"Silver / white", "Rose gold":"Rose gold", White:"Silver / white", Mixed:"Mixed", unsure:"Unsure"};
 const colourLabel = c => COLOUR_LABEL[c] || c || "";
 const colourOpts = (cur, withMixed) => { const list = [...COLOURS, ...(withMixed ? ["Mixed"] : []), "unsure"]; if (cur && !list.includes(cur)) list.push(cur);
   return list.map(c => `<option value="${esc(c)}" ${c === (cur || "unsure") ? "selected" : ""}>${esc(colourLabel(c))}</option>`).join(""); };
-const colourFromText = t => { t = String(t || "").toLowerCase(); return /rose|\brg\b/.test(t) ? "Rose gold" : /yellow|\byg\b/.test(t) ? "Yellow" : /white/.test(t) ? "White" : /silver|\bss\b|\b925\b|platinum/.test(t) ? "Silver" : ""; };
+const colourFromText = t => { t = String(t || "").toLowerCase(); return /rose|\brg\b/.test(t) ? "Rose gold" : /yellow|\byg\b/.test(t) ? "Yellow" : /silver|white|\bss\b|\b925\b|platinum/.test(t) ? "Silver" : ""; };
 // coloured dot: from the colour (tone), else the metal
-const swClass = x => x.colour === "Yellow" ? "YG" : x.colour === "Silver" ? "SS" : x.colour === "Rose gold" ? "RG" : x.colour === "White" ? "WH"
+const swClass = x => x.colour === "Yellow" ? "YG" : x.colour === "Silver" ? "SS" : x.colour === "Rose gold" ? "RG" : x.colour === "White" ? "SS"
   : x.metal === "YG" || x.metal === "RG" || x.metal === "SS" ? x.metal : x.metal === "gold" ? "YG" : x.metal === "PT" ? "PT" : x.metal === "brass" ? "brass" : x.metal === "mixed" ? "mixed" : x.metal === "unsure" ? "unsure" : "none";
 function mapColour(v){ const t = String(v ?? "").trim(), l = t.toLowerCase(); if (!l) return "";
-  if (/rose|\brg\b|pink gold/.test(l)) return "Rose gold"; if (/yellow|\byg\b|^gold$/.test(l)) return "Yellow"; if (/white/.test(l)) return "White"; if (/silver|\bss\b/.test(l)) return "Silver"; if (/mix/.test(l)) return "Mixed"; if (/unsure|not sure/.test(l)) return "unsure"; return t; }
+  if (/rose|\brg\b|pink gold/.test(l)) return "Rose gold"; if (/yellow|\byg\b|^gold$/.test(l)) return "Yellow"; if (/silver|white|\bss\b/.test(l)) return "Silver"; if (/mix/.test(l)) return "Mixed"; if (/unsure|not sure/.test(l)) return "unsure"; return t; }
 const splitRow = c => `<div class="usedrow" style="grid-template-columns:1fr 90px 34px"><input name="splitColour" placeholder="e.g. yellow/green" aria-label="Colour or variant" value="${esc(c?.colour || "")}"><input name="splitQty" type="number" step="any" min="0" inputmode="decimal" placeholder="qty" aria-label="How many" value="${c?.qty ?? ""}"><button type="button" class="btn small ghost" data-a="rmSplit" aria-label="Remove colour">✕</button></div>`;
 // "Pink 10, Blue 8" → [{colour:"Pink", qty:10}, {colour:"Blue", qty:8}]
 const parseSplit = t => String(t || "").split(/[,;\n]+/).map(p => { const m = p.trim().match(/^(.*?)[\s:x×-]*(\d+(?:\.\d+)?)$/i); return m && m[1].trim() ? {colour: m[1].trim(), qty: parseFloat(m[2])} : null; }).filter(Boolean);
@@ -1535,7 +1535,7 @@ const HELP = [
   "",
   "ALLOWED VALUES",
   "Type: Chain, Jump ring, Charm, Spacer, Findings (clasps, connectors, ear wires...), Other supply",
-  "Metal (what it's made of): Gold, Sterling silver, Platinum, Brass, Mixed, Unsure (or blank). Colour (the tone): Yellow, Silver, Rose gold, White. Finish: Solid, Gold filled, Gold plated, Unsure.",
+  "Metal (what it's made of): Gold, Sterling silver, Platinum, Brass, Mixed, Unsure (or blank). Colour (the tone): Yellow, Silver / white, Rose gold. Finish: Solid, Gold filled, Gold plated, Unsure.",
   "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
   "Connector (Stock and Links): Yes for connector charms that join two ends of a chain.",
   "Expenses Colours: for a mixed pack from a product link, list each variant and amount, e.g. yellow/green 10, pink 8. Each goes into the stock item named '<link> – <variant>' (created if new) when delivered.",
@@ -2126,6 +2126,7 @@ async function migrateMetals(){
       const p = {};
       if (x.metal === "YG" || x.metal === "RG") { p.metal = "gold"; if (!x.colour) p.colour = x.metal === "YG" ? "Yellow" : "Rose gold"; }
       else if (x.metal === "SS" && !x.colour) p.colour = "Silver";
+      if (x.colour === "White") p.colour = "Silver";
       if (Object.keys(p).length) { try { await S.db.collection(col).doc(x.id).update(p); } catch(e) { return; } }
     }
   }
