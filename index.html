@@ -101,7 +101,7 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:6
 .pill.low{background:var(--warn-bg);color:var(--warn)} .pill.out{background:var(--bad-bg);color:var(--bad)}
 .pill.uncounted{background:var(--sunk);color:var(--muted)}
 .sw{width:12px;height:12px;border-radius:50%;flex:none;display:inline-block;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
-.sw.YG{background:var(--yg)} .sw.SS{background:var(--ss)} .sw.RG{background:var(--rg)} .sw.brass{background:#B5893B} .sw.PT{background:#D5D7DD} .sw.unsure{background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--muted)} .sw.mixed{background:conic-gradient(var(--yg) 0 33%,var(--ss) 0 66%,var(--rg) 0)} .sw.none{background:var(--sunk)}
+.sw.YG{background:var(--yg)} .sw.SS{background:var(--ss)} .sw.RG{background:var(--rg)} .sw.brass{background:#B5893B} .sw.PT{background:#D5D7DD} .sw.WH{background:#F4F2EE} .sw.unsure{background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--muted)} .sw.mixed{background:conic-gradient(var(--yg) 0 33%,var(--ss) 0 66%,var(--rg) 0)} .sw.none{background:var(--sunk)}
 
 /* stats */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
@@ -528,7 +528,7 @@ function vStock(){
       <input id="q" type="search" placeholder="Search stock, e.g. rose 14k chain, birthstone" value="${esc(f.q)}" aria-label="Search stock">
       ${chipset("cat",[["all","All"],["chain","Chains"],["jumpring","Jump rings"],["charm","Charms"],["connector","Connectors"],["spacer","Spacers"],["findings","Findings"],["other","Other"],["norestock","Not restocking"],["dead",`Archive (${S.items.filter(i=>i.dead).length})`]],f.cat)}
       ${chipset("metal",[["all","All metals"],["gold","Gold"],["SS","Sterling silver"],["PT","Platinum"],["brass","Brass"],["unsure","Unsure"]],f.metal)}
-      ${chipset("colour",[["all","All colours"],["Yellow","Gold","YG"],["Silver","Silver / white","SS"],["Rose gold","Rose gold","RG"],["unsure","Unsure"]],f.colour||"all")}
+      ${chipset("colour",[["all","All colours"],["Yellow","Yellow","YG"],["Silver","Silver","SS"],["Rose gold","Rose gold","RG"],["White","White","WH"],["unsure","Unsure"]],f.colour||"all")}
       ${chipset("finish",[["all","All finishes"],["solid","Solid"],["filled","Gold filled"],["plated","Gold plated"],["unsure","Unsure"]],f.finish||"all")}
       ${chipset("karat",[["all","All karats"],["14","14K"],["16","16K"],["18","18K"],["24","24K"],["unsure","Unsure"]],f.karat||"all")}
       ${chipset("line",[["all","All lines"],["pj","Permanent jewellery"],["kc","Keychain"],["un","Unsure"]],f.line)}
@@ -631,17 +631,17 @@ async function deliver(expId){
 }
 
 // Colour = the tone of the piece
-const COLOURS = ["Yellow","Silver","Rose gold"];
-const COLOUR_LABEL = {Yellow:"Gold", Silver:"Silver / white", "Rose gold":"Rose gold", Mixed:"Mixed", unsure:"Unsure"};
+const COLOURS = ["Yellow","Silver","Rose gold","White"];
+const COLOUR_LABEL = {Yellow:"Yellow", Silver:"Silver", "Rose gold":"Rose gold", White:"White", Mixed:"Mixed", unsure:"Unsure"};
 const colourLabel = c => COLOUR_LABEL[c] || c || "";
 const colourOpts = (cur, withMixed) => { const list = [...COLOURS, ...(withMixed ? ["Mixed"] : []), "unsure"]; if (cur && !list.includes(cur)) list.push(cur);
   return list.map(c => `<option value="${esc(c)}" ${c === (cur || "unsure") ? "selected" : ""}>${esc(colourLabel(c))}</option>`).join(""); };
-const colourFromText = t => { t = String(t || "").toLowerCase(); return /rose|\brg\b/.test(t) ? "Rose gold" : /yellow|\byg\b/.test(t) ? "Yellow" : /silver|white|\bss\b|\b925\b|platinum/.test(t) ? "Silver" : ""; };
+const colourFromText = t => { t = String(t || "").toLowerCase(); return /rose|\brg\b/.test(t) ? "Rose gold" : /yellow|\byg\b/.test(t) ? "Yellow" : /white/.test(t) ? "White" : /silver|\bss\b|\b925\b|platinum/.test(t) ? "Silver" : ""; };
 // coloured dot: from the colour (tone), else the metal
-const swClass = x => x.colour === "Yellow" ? "YG" : x.colour === "Silver" ? "SS" : x.colour === "Rose gold" ? "RG"
+const swClass = x => x.colour === "Yellow" ? "YG" : x.colour === "Silver" ? "SS" : x.colour === "Rose gold" ? "RG" : x.colour === "White" ? "WH"
   : x.metal === "YG" || x.metal === "RG" || x.metal === "SS" ? x.metal : x.metal === "gold" ? "YG" : x.metal === "PT" ? "PT" : x.metal === "brass" ? "brass" : x.metal === "mixed" ? "mixed" : x.metal === "unsure" ? "unsure" : "none";
 function mapColour(v){ const t = String(v ?? "").trim(), l = t.toLowerCase(); if (!l) return "";
-  if (/rose|\brg\b|pink gold/.test(l)) return "Rose gold"; if (/yellow|\byg\b|^gold$/.test(l)) return "Yellow"; if (/silver|\bss\b|white/.test(l)) return "Silver"; if (/mix/.test(l)) return "Mixed"; if (/unsure|not sure/.test(l)) return "unsure"; return t; }
+  if (/rose|\brg\b|pink gold/.test(l)) return "Rose gold"; if (/yellow|\byg\b|^gold$/.test(l)) return "Yellow"; if (/white/.test(l)) return "White"; if (/silver|\bss\b/.test(l)) return "Silver"; if (/mix/.test(l)) return "Mixed"; if (/unsure|not sure/.test(l)) return "unsure"; return t; }
 const splitRow = c => `<div class="usedrow" style="grid-template-columns:1fr 90px 34px"><input name="splitColour" placeholder="e.g. yellow/green" aria-label="Colour or variant" value="${esc(c?.colour || "")}"><input name="splitQty" type="number" step="any" min="0" inputmode="decimal" placeholder="qty" aria-label="How many" value="${c?.qty ?? ""}"><button type="button" class="btn small ghost" data-a="rmSplit" aria-label="Remove colour">✕</button></div>`;
 // "Pink 10, Blue 8" → [{colour:"Pink", qty:10}, {colour:"Blue", qty:8}]
 const parseSplit = t => String(t || "").split(/[,;\n]+/).map(p => { const m = p.trim().match(/^(.*?)[\s:x×-]*(\d+(?:\.\d+)?)$/i); return m && m[1].trim() ? {colour: m[1].trim(), qty: parseFloat(m[2])} : null; }).filter(Boolean);
@@ -1530,7 +1530,7 @@ const HELP = [
   "",
   "ALLOWED VALUES",
   "Type: Chain, Jump ring, Charm, Spacer, Findings (clasps, connectors, ear wires...), Other supply",
-  "Metal (what it's made of): Gold, Sterling silver, Platinum, Brass, Mixed, Unsure (or blank). Colour (the tone): Gold, Silver / white, Rose gold. Finish: Solid, Gold filled, Gold plated, Unsure.",
+  "Metal (what it's made of): Gold, Sterling silver, Platinum, Brass, Mixed, Unsure (or blank). Colour (the tone): Yellow, Silver, Rose gold, White. Finish: Solid, Gold filled, Gold plated, Unsure.",
   "Finish (Stock, Links and Expenses): Solid, Gold filled or Gold plated (or blank).",
   "Connector (Stock and Links): Yes for connector charms that join two ends of a chain.",
   "Expenses Colours: for a mixed pack from a product link, list each variant and amount, e.g. yellow/green 10, pink 8. Each goes into the stock item named '<link> – <variant>' (created if new) when delivered.",
