@@ -956,6 +956,10 @@ function itemForm(it){
       const ref = it ? S.db.collection("items").doc(it.id) : S.db.collection("items").doc();
       await ref.set(data); toast(wo ? `Saved. ${wo} ${data.unit||""} written off` : it?"Item saved":"Item added");
       const synced = await syncFromItem(it, data, ref.id);
+      if (data.linkId && (!it || it.linkId !== data.linkId) && linkById(data.linkId)) {
+        const got = await connectLinkToItem(linkById(data.linkId), {...data, id: ref.id});
+        toast(`Connected to “${linkById(data.linkId).title}”${got.length ? ". Filled in: " + got.join(", ") : ""}`);
+      }
       if (synced) toast(`Saved. Also updated the link “${synced.link}”${synced.others ? ` and ${synced.others} other stock item${synced.others === 1 ? "" : "s"}` : ""}`);
       if (wo) {
         const reason = fd.get("woReason") || "other";
@@ -1311,6 +1315,12 @@ const specsLine = l => { const t = String(l.specs || "").split(/\n+/).map(x => x
 // Connect a link to an existing stock item and fill each side's missing details from the other.
 async function connectLinkToItem(link, item){
   const patch = {linkId: link.id}, got = [];
+  const noLines = x => !(x || []).filter(k => k !== "un").length;
+  const lm = !isBlank(link.metal) ? link.metal : metalFromText(link.title);
+  if (isBlank(item.metal) && !isBlank(lm)) { patch.metal = lm; got.push("metal"); }
+  const lc = !isBlank(link.colour) ? link.colour : colourFromText(link.title);
+  if (isBlank(item.colour) && !isBlank(lc) && !/mix/i.test(lc)) { patch.colour = lc; got.push("colour"); }
+  if (noLines(item.lines) && !noLines(link.lines)) { patch.lines = link.lines; got.push("used for"); }
   if (isBlank(item.finish) && !isBlank(link.finish)) { patch.finish = link.finish; got.push("finish"); }
   const lk = link.karat || karatFromText(link.title); if (isBlank(item.karat) && !isBlank(lk)) { patch.karat = lk; got.push("karat"); }
   if (!item.style && link.specs) { patch.style = specsLine(link); got.push("details"); }
@@ -1322,8 +1332,14 @@ async function connectLinkToItem(link, item){
   if (isBlank(link.metal) && !isBlank(item.metal)) lp.metal = item.metal;
   if (isBlank(link.finish) && !isBlank(item.finish)) lp.finish = item.finish;
   if (isBlank(link.karat) && !isBlank(item.karat)) lp.karat = item.karat;
-  if (!(link.lines || []).length && (item.lines || []).length) lp.lines = item.lines;
+  if (noLines(link.lines) && !noLines(item.lines)) lp.lines = item.lines;
   if (!link.photo && item.photo) lp.photo = item.photo;
+  if (isBlank(link.colour) && !isBlank(item.colour)) {
+    const others = S.items.filter(i => i.linkId === link.id && i.id !== item.id && !isBlank(i.colour) && i.colour !== item.colour);
+    lp.colour = others.length ? "Mixed" : item.colour;
+  }
+  if (!link.specs && item.style) lp.specs = item.style;
+  if (link.connector !== true && item.connector && item.cat === "charm") lp.connector = true;
   if (Object.keys(lp).length) await S.db.collection("links").doc(link.id).update(lp);
   return got;
 }
@@ -1353,6 +1369,13 @@ function fillFromLink(form, it){
     } else {
       if (isBlank(it.finish) && !isBlank(l.finish) && set("finish", l.finish, true)) filled.push("finish");
       if (isBlank(it.karat) && set("karat", !isBlank(l.karat) ? l.karat : karatFromText(l.title), true)) filled.push("karat");
+      const lm = !isBlank(l.metal) ? l.metal : metalFromText(l.title);
+      if (isBlank(it.metal) && !isBlank(lm) && set("metal", lm, true)) filled.push("metal");
+      const lc = !isBlank(l.colour) ? l.colour : colourFromText(l.title);
+      if (isBlank(it.colour) && lc && !/mix/i.test(lc) && set("colour", lc, true)) filled.push("colour");
+      const has = k => el(k)?.checked && k !== "un";
+      if (l.lines && l.lines.some(k => k !== "un") && !["pj","kc"].some(has) && !["pj","kc","un"].some(k => el(k)?.dataset.touched)) { ["pj","kc","un"].forEach(k => { if (el(k)) el(k).checked = l.lines.includes(k); }); filled.push("used for"); }
+      if (l.connector && it.cat === "charm" && el("connector") && !el("connector").checked && !el("connector").dataset.touched) { el("connector").checked = true; filled.push("connector"); }
     }
     // details: the link's specifications, one line
     const specs = specsLine(l);
