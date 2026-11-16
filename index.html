@@ -584,6 +584,7 @@ function vSales(){
 
 function guessCat(t){ t = (t||"").toLowerCase(); return /spacer/.test(t) ? "spacer" : /jump ?ring/.test(t) ? "jumpring" : /chain/.test(t) ? "chain" : /charm|pendant|birthstone/.test(t) ? "charm" : /finding|clasp|lobster|connector|bail|ear ?wire|earring hook|crimp|end cap|spring ring|toggle|key ?ring|split ring/.test(t) ? "findings" : "other"; }
 function newItemFromLink(link, qty, unit, sgd){
+  if (isLen(unit) && unit !== "m") { qty = convLen(qty, unit, "m"); unit = "m"; }
   return {name: link.title, cat: link.connector ? "charm" : guessCat(link.title), metal: link.metal || metalFromText(link.title), colour: link.colour && link.colour !== "Mixed" ? link.colour : colourFromText(link.title), finish: link.finish || "", karat: link.karat || karatFromText(link.title),
     connector: !!link.connector || (/connector/i.test(link.title || "") && guessCat(link.title) === "charm"), style: "", lines: (link.lines && link.lines.length) ? link.lines : ["pj"],
     qty, unit: unit || "pcs", lowAt: null, cost: qty && sgd ? Math.round(sgd / qty * 100) / 100 : null, linkId: link.id, notes: "", photo: link.photo || "", ...stamp()};
@@ -617,7 +618,7 @@ async function deliver(expId){
     for (const sp of x.split) {
       const v = norm(sp.colour);
       const ex = S.items.find(i => i.linkId === splitLink.id && !i.dead && (norm(i.name).endsWith(v) || norm(i.colour || "") === v));
-      if (ex) { await adjustStock([{itemId: ex.id, qty: sp.qty}], +1); ids.push(ex.id); }
+      if (ex) { await adjustStock([{itemId: ex.id, qty: convLen(sp.qty, x.unit, ex.unit) ?? sp.qty}], +1); ids.push(ex.id); }
       else {
         const r = S.db.collection("items").doc(); ids.push(r.id); made++;
         await r.set({...newItemFromLink(splitLink, sp.qty, x.unit || "pcs", x.amount * sp.qty / total), name: `${splitLink.title} – ${sp.colour}`, colour: COLOURS.includes(mapColour(sp.colour)) ? mapColour(sp.colour) : (splitLink.colour !== "Mixed" ? splitLink.colour || "" : ""),
@@ -630,12 +631,12 @@ async function deliver(expId){
   }
   const {link, item} = stockTarget(x);
   let itemId = "", made = false;
-  if (item) { itemId = item.id; await adjustStock([{itemId, qty}], +1); }
+  if (item) { itemId = item.id; await adjustStock([{itemId, qty: convLen(qty, x.unit, item.unit) ?? qty}], +1); }
   else if (link) { const r = S.db.collection("items").doc(); itemId = r.id; made = true; await r.set({...newItemFromLink(link, qty, x.unit || "pcs", x.amount), photo: link.photo || x.photo || "", finish: x.finish || link.finish || "", karat: x.karat || link.karat || karatFromText(link.title)}); }
   else return null;
   await S.db.collection("expenses").doc(expId).update({delivered:true, deliveredAt:Date.now(), itemId});
   const it = itemById(itemId) || {unit: x.unit};
-  logAct(`marked ${x.desc} as delivered: ${fmtQ(it, qty)} added to stock${made ? " as a new item" : ""}`);
+  logAct(`marked ${x.desc} as delivered: ${fmtQ(it, convLen(qty, x.unit, it.unit) ?? qty)} added to stock${made ? " as a new item" : ""}`);
   return {itemId, made};
 }
 
@@ -1112,7 +1113,7 @@ function expenseForm(x, preset){
         <label class="f">Shop / supplier<input name="shop" value="${esc(e.shop)}" placeholder="optional"></label>
       </div>
       <div class="f">Quantity
-        <div class="xl-row" id="expQtyRow"><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="e.g. 10" aria-label="Quantity" style="max-width:150px" value="${e.qty ?? ""}" ${delivered ? "disabled" : ""}><span class="u" id="expUnitLbl"></span></div><select name="unit" id="expUnit" style="width:auto" aria-label="Unit" ${delivered ? "disabled" : ""}>${opt({pcs:"pcs",m:"metres (m)",cm:"cm",set:"sets",pack:"packs"}, e.unit || "pcs")}</select></div>
+        <div class="xl-row" id="expQtyRow"><div class="uin"><input name="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="e.g. 10" aria-label="Quantity" style="max-width:150px" value="${e.qty ?? ""}" ${delivered ? "disabled" : ""}><span class="u" id="expUnitLbl"></span></div><select name="unit" id="expUnit" style="width:auto" aria-label="Unit" ${delivered ? "disabled" : ""}>${opt({pcs:"pcs",m:"metres (m)",cm:"cm",ft:"feet (ft)",inch:"inches",set:"sets",pack:"packs"}, e.unit || "pcs")}</select></div>
       </div>
       ${delivered
         ? (tgt.item && x.qty ? `<p class="note">Delivered${x.deliveredAt ? " on " + esc(new Date(x.deliveredAt).toLocaleDateString("en-SG",{day:"numeric",month:"short"})) : ""}: ${esc(fmtQ(tgt.item, x.qty))} of ${esc(tgt.item.name)} went into stock. Editing here doesn't change stock again.</p>` : "")
@@ -1142,7 +1143,7 @@ function expenseForm(x, preset){
         const {link, item} = resolveSrc(fd.get("src") || "");
         const qty = numOrNull(fd.get("qty"));
         Object.assign(data, {linkId: link ? link.id : "", itemId: item && !link ? item.id : "", qty: qty || null,
-          unit: item ? (item.unit || "pcs") : (fd.get("unit") || "pcs"), delivered: false});
+          unit: item && !isLen(item.unit) ? (item.unit || "pcs") : (fd.get("unit") || item?.unit || "pcs"), delivered: false});
         if (link && !data.photo && link.photo) data.photo = link.photo;
         const cols = fd.getAll("splitColour"), sq = fd.getAll("splitQty");
         const split = cols.map((c, i) => ({colour: String(c || "").trim(), qty: numOrNull(sq[i])})).filter(v => v.colour && v.qty);
@@ -1190,7 +1191,10 @@ function expenseForm(x, preset){
               nt = form.querySelector("#expSrcNote"), delRow = form.querySelector("#expDelRow");
         delRow.hidden = !(link || item);
         const sb = form.querySelector("#expSplitBox"); if (sb) sb.hidden = !link;
-        unitSel.hidden = !!item; lbl.textContent = item ? (item.unit || "pcs") : "";
+        const lenItem = item && isLen(item.unit);
+        unitSel.hidden = !!item && !lenItem; lbl.textContent = item && !lenItem ? (item.unit || "pcs") : "";
+        if (lenItem && !(first === true && x && x.unit)) unitSel.value = item.unit;
+        if (!unitSel._lenNote) { unitSel._lenNote = 1; unitSel.addEventListener("change", () => { const it2 = resolveSrc(srcSel.value).item; if (it2 && isLen(it2.unit) && isLen(unitSel.value) && unitSel.value !== it2.unit) toast(`Converted to ${it2.unit} when it's added to stock`); }); }
         if (!unitSel.hidden && link && !(first === true && x && x.unit)) unitSel.value = guessCat(link.title) === "chain" ? "m" : "pcs";
         if (link) {
           catSel.value = "stock";
@@ -1301,12 +1305,17 @@ async function syncFromItem(oldI, newI, itemId){
   return {link: link.title, others: n};
 }
 
+// Length units, in metres. convLen(10, "ft", "m") → 3.048; null if either isn't a length.
+const LEN_M = {m:1, cm:0.01, mm:0.001, ft:0.3048, inch:0.0254};
+const isLen = u => u in LEN_M;
+const convLen = (q, from, to) => isLen(from) && isLen(to) ? Math.round(Number(q) * LEN_M[from] / LEN_M[to] * 10000) / 10000 : null;
 // SGD cost of one unit from a link's price and pack size (e.g. US$12.50 per "1 m" → per m)
 async function linkUnitCost(l, unit){
   if (l.price == null || l.price === "") return null;
-  const m = String(l.pack || "").match(/([\d.]+)\s*(m|cm|mm|pcs?|pieces?|ft|inch)?\b/i);
-  let n = m ? parseFloat(m[1]) || 1 : 1; const pu = m && m[2] ? m[2].toLowerCase() : "";
-  if (pu === "cm" && unit === "m") n = n / 100; else if (pu === "m" && unit === "cm") n = n * 100;
+  const m = String(l.pack || "").match(/([\d.]+)\s*(metres?|meters?|m|cm|mm|pcs?|pieces?|ft|feet|foot|inch(?:es)?|in|")?(?![a-z])/i);
+  let n = m ? parseFloat(m[1]) || 1 : 1; let pu = m && m[2] ? m[2].toLowerCase() : "";
+  pu = /^(metres?|meters?)$/.test(pu) ? "m" : /^(feet|foot)$/.test(pu) ? "ft" : /^(inch|inches|in|")$/.test(pu) ? "inch" : pu;
+  if (isLen(pu) && isLen(unit)) n = convLen(n, pu, unit);
   let rate = 1;
   if ((l.priceCur || "SGD") !== "SGD") { try { rate = await getRate(l.priceCur); } catch(e) { return null; } }
   return n > 0 ? Math.round(Number(l.price) / n * rate * 100) / 100 : null;
