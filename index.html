@@ -945,6 +945,7 @@ function itemForm(it){
         <div class="f"><span>Supplier link <span class="note linkHint" style="font-weight:400"></span></span><select name="linkId" aria-label="Supplier link">${linkOpts(e.linkId)}</select></div>
       </div>
       <div class="f">Dead stock
+        <label class="keep"><input type="checkbox" name="noRestock" ${e.noRestock?"checked":""}> Don't restock (keep in stock, but no reminders when it runs low)</label>
         <label class="keep"><input type="checkbox" name="dead" ${e.dead?"checked":""}> Move to archive (dead stock: not selling, no restock alerts)</label>
         ${it ? `<div class="xl-row"><div class="uin"><input name="woQty" type="number" step="any" min="0" inputmode="decimal" placeholder="write off" aria-label="Amount to write off" style="max-width:120px"><span class="u">${esc(e.unit||"pcs")}</span></div>
           <select name="woReason" style="width:auto" aria-label="Reason">${opt(WRITE_OFF,"damaged")}</select></div>
@@ -959,6 +960,9 @@ function itemForm(it){
         qty:numOrNull(fd.get("qty")), unit:fd.get("unit"), lowAt:numOrNull(fd.get("lowAt")), cost:numOrNull(fd.get("cost")),
         linkId:fd.get("linkId")||"", notes:fd.get("notes").trim(), photo:fd.get("photo")||"", ...stamp()};
       data.dead = !!fd.get("dead");
+      data.noRestock = !!fd.get("noRestock");
+      // keep anything this form doesn't show (so saving never wipes it)
+      if (it) { const {id: _id, ...rest} = it; Object.keys(rest).forEach(k => { if (!(k in data)) data[k] = rest[k]; }); }
       const wo = numOrNull(fd.get("woQty"));
       if (wo && data.qty != null) data.qty = Math.max(0, Math.round((data.qty - wo) * 10000) / 10000);
       const ref = it ? S.db.collection("items").doc(it.id) : S.db.collection("items").doc();
