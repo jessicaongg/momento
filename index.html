@@ -1210,7 +1210,7 @@ function expenseForm(x, preset){
         if (link) {
           catSel.value = "stock";
           const d = form.querySelector("[name=desc]"), sh = form.querySelector("[name=shop]");
-          if (!d.value) d.value = link.title;
+          if (!d.value || first !== true) d.value = link.title;
           if (!sh.value) sh.value = link.shop || host(link.url) || "";
           const fin = form.querySelector("[name=finish]"); if (fin && isBlank(fin.value) && !isBlank(link.finish)) fin.value = link.finish;
           const kar = form.querySelector("[name=karat]"); const lk = link.karat || karatFromText(link.title); if (kar && isBlank(kar.value) && !isBlank(lk)) kar.value = lk;
@@ -1218,6 +1218,7 @@ function expenseForm(x, preset){
           const ph = form.querySelector("[name=photo]");
           if (link.photo && !ph.value) { ph.value = link.photo; form.querySelector(".thumb.big").innerHTML = `<img src="${esc(photoSrc(link.photo))}" alt="">`; const rm = form.querySelector("#phRemove"); if (rm) rm.hidden = false; }
         }
+        if (item && !link && first !== true) { const d = form.querySelector("[name=desc]"); d.value = item.name; catSel.value = "stock"; }
         const target = item || (link ? S.items.find(i => i.linkId === link.id) : null);
         nt.textContent = !srcSel.value ? "For a stock order, pick the wishlist link (or stock item) and how much you ordered. It goes into stock when you mark it delivered."
           : target ? `When delivered, this is added to the stock item “${target.name}” (now ${fmtQ(target, target.qty)}).`
@@ -1405,7 +1406,7 @@ function fillFromLink(form, it){
     const el = n => form.querySelector(`[name="${n}"]`);
     const set = (n, val, onlyIfEmpty) => { const e = el(n); if (!e || val == null || val === "" || e.dataset.touched) return false; if (onlyIfEmpty && !isBlank(e.value)) return false; e.value = val; return true; };
     const filled = [];
-    if (set("name", l.title, true)) filled.push("name");
+    const nm = el("name"); if (nm && l.title && nm.value !== l.title) { nm.value = l.title; filled.push("name"); }
     if (!it) {
       const cat = linkCat(l);
       if (set("cat", cat)) filled.push("type");
