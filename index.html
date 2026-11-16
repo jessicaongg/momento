@@ -449,7 +449,7 @@ function itemRow(it, withQty=true){
   const pill = it.dead ? `<span class="pill uncounted">Dead stock</span>` : it.noRestock ? `<span class="pill uncounted">Not restocking</span>` : st==="low" ? `<span class="pill low">Low</span>` : st==="out" ? `<span class="pill out">Out</span>` : st==="uncounted" ? `<span class="pill uncounted">Not counted</span>` : "";
   const lines = (it.lines||[]).map(l=>`<span class="pill ${l}">${LINE_SHORT[l]}</span>`).join("");
   const fin = (!isBlank(it.karat) ? `<span class="pill fin">${esc(KARAT[it.karat])}</span> ` : "") + (!isBlank(it.finish) ? `<span class="pill fin">${esc(FINISH[it.finish])}</span>` : "");
-  const sub = [CAT[it.cat], it.style, it.cost!=null ? money(it.cost)+" / "+(it.unit||"pc") : ""].filter(Boolean).map(esc).join(" · ");
+  const sub = [CAT[it.cat], it.style, it.cost!=null ? (it.cost > 0 && it.cost < 0.1 ? "S$" + Number(it.cost).toFixed(3) : money(it.cost))+" / "+(it.unit||"pc") : ""].filter(Boolean).map(esc).join(" · ");
   const q = it.qty==null ? "—" : (Math.round(it.qty*100)/100);
   const shade = !it.dead && !it.noRestock && (st === "low" || st === "out") ? " due" : (it.linkId && linkById(it.linkId)) ? "" : " nolink";
   return `<div class="row${shade}">
@@ -941,7 +941,7 @@ function itemForm(it){
       </div>
       <p class="note">Chains: keep them in metres. When you log a sale and pick a chain, your usual length for that product (Stock → Chain lengths) fills in and comes off stock automatically. The − / + buttons move 10 cm at a time.</p>
       <div class="grid2">
-        <label class="f">Cost per unit (S$)<input name="cost" type="number" step="0.01" min="0" inputmode="decimal" value="${e.cost??""}"></label>
+        <label class="f">Cost per unit (S$)<input name="cost" type="number" step="any" min="0" inputmode="decimal" value="${e.cost??""}"></label>
         <div class="f"><span>Supplier link <span class="note linkHint" style="font-weight:400"></span></span><select name="linkId" aria-label="Supplier link">${linkOpts(e.linkId)}</select></div>
       </div>
       <div class="f">Dead stock
@@ -1363,8 +1363,11 @@ async function alignNamesFromItem(itemId, name, linkId){
 // SGD cost of one unit from a link's price and pack size (e.g. US$12.50 per "1 m" → per m)
 // how many stock units one link pack holds, e.g. "1 ft" → 0.3048 m, "10 pcs" → 10
 function packN(l, unit){
-  const m = String(l.pack || "").match(/([\d.]+)\s*(metres?|meters?|m|cm|mm|pcs?|pieces?|ft|feet|foot|inch(?:es)?|in|")?(?![a-z])/i);
+  // e.g. "1 ft", "10 pcs", "30.48cm", or just "per foot" (= 1 ft)
+  const t = String(l.pack || "");
+  const m = t.match(/(\d+(?:\.\d+)?)\s*(metres?|meters?|m|cm|mm|pcs?|pieces?|ft|feet|foot|inch(?:es)?|in|")?(?![a-z])/i);
   let n = m ? parseFloat(m[1]) || 1 : 1; let pu = m && m[2] ? m[2].toLowerCase() : "";
+  if (!pu) { const w = t.match(/(?:^|[\s\/])(metres?|meters?|m|cm|mm|pcs?|pieces?|ft|feet|foot|inch(?:es)?)(?![a-z])/i); if (w) pu = w[1].toLowerCase(); }
   pu = /^(metres?|meters?)$/.test(pu) ? "m" : /^(feet|foot)$/.test(pu) ? "ft" : /^(inch|inches|in|")$/.test(pu) ? "inch" : pu;
   if (isLen(pu) && isLen(unit)) n = convLen(n, pu, unit);
   return n;
@@ -1374,7 +1377,9 @@ async function linkUnitCost(l, unit){
   const n = packN(l, unit);
   let rate = 1;
   if ((l.priceCur || "SGD") !== "SGD") { try { rate = await getRate(l.priceCur); } catch(e) { return null; } }
-  return n > 0 ? Math.round(Number(l.price) / n * rate * 100) / 100 : null;
+  if (!(n > 0)) return null;
+  const v = Number(l.price) / n * rate;
+  return v < 1 ? Math.round(v * 10000) / 10000 : Math.round(v * 100) / 100;   // small per-cm costs keep 4 decimals
 }
 // the reverse: a stock item's cost per unit (S$) → the link's price for one pack, in the link's currency
 async function linkPriceFromCost(l, cost, unit){
@@ -1421,6 +1426,13 @@ async function connectLinkToItem(link, item){
 
 function fillFromLink(form, it){
   const linkSel = form.querySelector("[name=linkId]"); if (!linkSel) return;
+  const unitSel = form.querySelector("[name=unit]"), costEl = form.querySelector("[name=cost]");
+  if (unitSel && costEl) unitSel.addEventListener("change", async () => {
+    const l = linkById(linkSel.value); if (!l) return;
+    if (costEl.value && costEl.value !== form._autoCost && !(it && it.linkId === l.id && Number(costEl.value) === it.cost)) return;
+    const c = await linkUnitCost(l, unitSel.value || "pcs");
+    if (c != null && String(c) !== costEl.value) { costEl.value = c; form._autoCost = String(c); toast(`Cost per unit updated: ${money(c)} / ${unitSel.value}`); }
+  });
   const mark = ev => { if (ev.target !== linkSel && ev.target.name) ev.target.dataset.touched = "1"; };
   form.addEventListener("input", mark); form.addEventListener("change", mark);
   linkSel.addEventListener("change", async () => {
@@ -1456,9 +1468,10 @@ function fillFromLink(form, it){
     const specs = specsLine(l);
     if (specs && set("style", specs, true)) filled.push("details");
     // cost per unit: price ÷ pack size, in SGD
-    if (!el("cost")?.value && !el("cost")?.dataset.touched) {
+    // always follows the chosen link (and is redone if you change the unit, unless you typed your own cost)
+    if (el("cost")) {
       const c = await linkUnitCost(l, el("unit")?.value || "pcs");
-      if (c != null && set("cost", c, true)) filled.push("cost per unit");
+      if (c != null) { el("cost").value = c; delete el("cost").dataset.touched; form._autoCost = String(c); filled.push("cost per unit"); }
     }
     const ph = el("photo");
     if (l.photo && ph && !ph.value) {
@@ -2233,6 +2246,18 @@ function makeDb(sb){
 
 // One-off tidy-up: older entries used Metal = Yellow gold / Rose gold / Sterling silver.
 // Now Metal is the material and Colour is the tone, so convert them in place.
+// one-time repair: costs worked out before feet/inches were converted were too high. Redo every connected item's cost from its link.
+async function fixLinkCosts(){
+  try { const f = await S.db.doc("config/fixes").get(); if (f.exists && f.data()?.linkCosts1) return; } catch(e) { return; }
+  let n = 0;
+  for (const it of [...S.items]) {
+    const l = it.linkId ? linkById(it.linkId) : null; if (!l || l.price == null || l.price === "") continue;
+    const c = await linkUnitCost(l, it.unit || "pcs");
+    if (c != null && c !== it.cost) { try { await S.db.collection("items").doc(it.id).update({cost: c}); n++; } catch(e) { return; } }
+  }
+  try { await S.db.doc("config/fixes").set({linkCosts1: Date.now()}); } catch(e) {}
+  if (n) logAct(`recalculated the cost per unit of ${n} stock item${n === 1 ? "" : "s"} from their supplier links`);
+}
 async function migrateMetals(){
   for (const [col, list] of [["items", S.items], ["links", S.links]]) {
     for (const x of [...list]) {
@@ -2285,7 +2310,7 @@ async function start(sb, session){
       S[k] = snap.docs.map(d => ({id:d.id, ...d.data()}));
       S.loaded[k] = true;
       if (Object.values(S.loaded).every(Boolean)) { clearTimeout(timer); if (S.canWrite) setStatus(""); }
-      if (!S.migrated && S.canWrite && S.loaded.items && S.loaded.links) { S.migrated = true; migrateMetals(); }
+      if (!S.migrated && S.canWrite && S.loaded.items && S.loaded.links) { S.migrated = true; migrateMetals().then(fixLinkCosts); }
       render();
     }, () => { S.loaded[k] = true; clearTimeout(timer); setStatus("Couldn't load some data. Close the app and open it again."); render(); });
   }
