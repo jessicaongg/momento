@@ -968,6 +968,10 @@ function itemForm(it){
         const got = await connectLinkToItem(linkById(data.linkId), {...data, id: ref.id});
         toast(`Connected to “${linkById(data.linkId).title}”${got.length ? ". Filled in: " + got.join(", ") : ""}`);
       }
+      if (data.linkId && (!it || it.linkId !== data.linkId || it.name !== data.name)) {
+        const t = await alignNamesFromItem(ref.id, data.name, data.linkId);
+        if (t) toast(`Saved. The supplier link is now called “${t}”`);
+      }
       if (synced) toast(`Saved. Also updated the link “${synced.link}”${synced.others ? ` and ${synced.others} other stock item${synced.others === 1 ? "" : "s"}` : ""}`);
       if (wo) {
         const reason = fd.get("woReason") || "other";
@@ -1254,7 +1258,10 @@ const COMMON_WORDS = new Set(["chain","chains","charm","charms","connector","con
 // metal names count the same as their short codes (Sterling silver = SS, etc.)
 const metalCodes = t => norm(t).replace(/sterling\s+silver|\bsilver\b|\b925\b/g, " ss ").replace(/yellow\s+gold/g, " yg ").replace(/rose\s+gold/g, " rg ").replace(/\bplatinum\b/g, " pt ");
 const nameWords = t => metalCodes(t).split(/[^a-z0-9]+/).filter(w => w.length > 1);
-const queryWords = t => { const w = nameWords(t); const k = w.filter(x => !COMMON_WORDS.has(x)); return k.length ? k : w; };
+// karats, metal/colour/finish shorthand and sizes don't say what the product is, so they're left out too
+const SPEC_WORDS = new Set(["rg","yg","wg","ss","gf","gp","pt","gold","rose","yellow","white","silver","sterling","filled","fill","plated","plate","solid","platinum","brass","tone","colour","color"]);
+const isCommonWord = x => COMMON_WORDS.has(x) || SPEC_WORDS.has(x) || /^\d+(k|kt|ct|karat|carat)$/.test(x) || /^\d+(\.\d+)?(mm|cm|m|in|inch|ft)?$/.test(x);
+const queryWords = t => { const w = nameWords(t); const k = w.filter(x => !isCommonWord(x)); return k.length ? k : w; };
 const matchScore = (t, q) => { const ws = nameWords(t); return q.reduce((a, k) => a + (ws.includes(k) ? 2 : ws.some(w => w.startsWith(k) || (k.startsWith(w) && w.length > 2)) ? 1 : 0), 0); };
 function attachSearch({sel, q, hint, also, list, empty, initial}){
   if (!sel || !q) return;
@@ -1317,6 +1324,33 @@ async function syncFromItem(oldI, newI, itemId){
 const LEN_M = {m:1, cm:0.01, mm:0.001, ft:0.3048, inch:0.0254};
 const isLen = u => u in LEN_M;
 const convLen = (q, from, to) => isLen(from) && isLen(to) ? Math.round(Number(q) * LEN_M[from] / LEN_M[to] * 10000) / 10000 : null;
+// Names: a link and its stock item share one name. In a mixed pack each item is "<link name> – <variant>".
+const variantOf = n => { n = String(n || ""); const i = n.lastIndexOf(" – "); return i > 0 ? n.slice(i + 3).trim() : ""; };
+const baseOf = n => { n = String(n || ""); const i = n.lastIndexOf(" – "); return i > 0 ? n.slice(0, i).trim() : n.trim(); };
+const nameFor = (title, it, alone) => variantOf(it.name) ? `${title} – ${variantOf(it.name)}` : alone ? title : null;
+// after a link is renamed or connected: rename its stock items to match
+async function alignNamesFromLink(linkId, title, extra = []){
+  const ids = new Set([...S.items.filter(i => i.linkId === linkId && !i.dead).map(i => i.id), ...extra.map(i => i.id)]);
+  const items = [...ids].map(id => itemById(id)).filter(Boolean);
+  let n = 0;
+  for (const it of items) {
+    const want = nameFor(title, it, items.length === 1);
+    if (want && want !== it.name) { await S.db.collection("items").doc(it.id).update({name: want, ...stamp()}); logAct(`renamed ${it.name} to ${want} to match its link`); n++; }
+  }
+  return n;
+}
+// after a stock item is renamed or connected: rename its link (and the link's other variants) to match
+async function alignNamesFromItem(itemId, name, linkId){
+  const link = linkById(linkId); if (!link) return null;
+  const others = S.items.filter(i => i.linkId === linkId && i.id !== itemId && !i.dead);
+  if (others.length && !variantOf(name)) return null;
+  const title = baseOf(name); if (!title) return null;
+  let n = 0;
+  if (title !== link.title) { await S.db.collection("links").doc(link.id).update({title}); logAct(`renamed supplier link ${link.title} to ${title} to match stock`); n++; }
+  for (const o of others) { const want = nameFor(title, o, false); if (want && want !== o.name) { await S.db.collection("items").doc(o.id).update({name: want, ...stamp()}); n++; } }
+  return n ? title : null;
+}
+
 // SGD cost of one unit from a link's price and pack size (e.g. US$12.50 per "1 m" → per m)
 async function linkUnitCost(l, unit){
   if (l.price == null || l.price === "") return null;
@@ -1511,6 +1545,8 @@ function linkForm(l){
         logAct(`connected ${it.name} to supplier link ${data.title}`);
       }
       if (toConnect.length) toast(`Connected ${toConnect.length === 1 ? toConnect[0].name : toConnect.length + " stock items"} to this link`);
+      const renamed = await alignNamesFromLink(ref.id, data.title, toConnect);
+      if (renamed) toast(`Renamed ${renamed} stock item${renamed === 1 ? "" : "s"} to match “${data.title}”`);
     }, form => { bindPhoto(form);
       const lcat = form.querySelector("[name=cat]"), lconn = form.querySelector(".linkConn"), ltitle = form.querySelector("[name=title]");
       const connVis = () => { lconn.hidden = lcat.value !== "charm"; };
