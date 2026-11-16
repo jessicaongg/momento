@@ -1294,10 +1294,12 @@ async function syncFromLink(oldL, newL, linkId){
   const patch = {};
   for (const [fi, fl] of SYNC_FIELDS) if (!sameVal(fl === "cat" ? linkCat(oldL) : oldL[fl], newL[fl])) patch[fi] = fl === "specs" ? specsLine(newL) : (newL[fl] ?? "");
   if (patch.cat && patch.cat !== "charm") delete patch.connector;
-  if (!Object.keys(patch).length) return 0;
+  const priceChanged = PRICE_FIELDS.some(k => !sameVal(oldL[k], newL[k])) && newL.price != null && newL.price !== "";
+  if (!Object.keys(patch).length && !priceChanged) return 0;
   let n = 0;
   for (const it of items) {
     const p = {...patch}; if ("connector" in p && it.cat !== "charm") delete p.connector;
+    if (priceChanged) { const c = await linkUnitCost(newL, it.unit || "pcs"); if (c != null && c !== it.cost) p.cost = c; }
     if (!Object.keys(p).length) continue;
     await S.db.collection("items").doc(it.id).update({...p, ...stamp()}); n++;
   }
@@ -1308,13 +1310,19 @@ async function syncFromItem(oldI, newI, itemId){
   const link = linkById(newI.linkId); if (!link) return null;
   const lp = {}, ip = {};
   for (const [fi, fl] of SYNC_FIELDS) if (!sameVal(oldI[fi], newI[fi])) { lp[fl] = newI[fi] ?? ""; ip[fi] = newI[fi] ?? ""; }
-  if (!Object.keys(lp).length) return null;
   if ("connector" in lp && newI.cat !== "charm") { delete lp.connector; delete ip.connector; }
+  if (!sameVal(oldI.cost, newI.cost) && newI.cost != null) {
+    const u = newI.unit || "pcs";
+    const ln = {...link, pack: link.pack || `1 ${u}`};
+    const pr = await linkPriceFromCost(ln, newI.cost, u);
+    if (pr != null) { lp.price = pr; if (!link.pack) lp.pack = ln.pack; ip.cost = newI.cost; }
+  }
   if (!Object.keys(lp).length) return null;
   await S.db.collection("links").doc(link.id).update(lp);
   let n = 0;
   for (const o of S.items.filter(i => i.linkId === link.id && i.id !== itemId)) {
     const p = {...ip}; if ("connector" in p && o.cat !== "charm") delete p.connector;
+    if ("cost" in p && (o.unit || "pcs") !== (newI.unit || "pcs")) { const c = await linkUnitCost({...link, ...lp}, o.unit || "pcs"); if (c != null) p.cost = c; else delete p.cost; }
     if (!Object.keys(p).length) continue;
     await S.db.collection("items").doc(o.id).update({...p, ...stamp()}); n++;
   }
@@ -1353,16 +1361,30 @@ async function alignNamesFromItem(itemId, name, linkId){
 }
 
 // SGD cost of one unit from a link's price and pack size (e.g. US$12.50 per "1 m" → per m)
-async function linkUnitCost(l, unit){
-  if (l.price == null || l.price === "") return null;
+// how many stock units one link pack holds, e.g. "1 ft" → 0.3048 m, "10 pcs" → 10
+function packN(l, unit){
   const m = String(l.pack || "").match(/([\d.]+)\s*(metres?|meters?|m|cm|mm|pcs?|pieces?|ft|feet|foot|inch(?:es)?|in|")?(?![a-z])/i);
   let n = m ? parseFloat(m[1]) || 1 : 1; let pu = m && m[2] ? m[2].toLowerCase() : "";
   pu = /^(metres?|meters?)$/.test(pu) ? "m" : /^(feet|foot)$/.test(pu) ? "ft" : /^(inch|inches|in|")$/.test(pu) ? "inch" : pu;
   if (isLen(pu) && isLen(unit)) n = convLen(n, pu, unit);
+  return n;
+}
+async function linkUnitCost(l, unit){
+  if (l.price == null || l.price === "") return null;
+  const n = packN(l, unit);
   let rate = 1;
   if ((l.priceCur || "SGD") !== "SGD") { try { rate = await getRate(l.priceCur); } catch(e) { return null; } }
   return n > 0 ? Math.round(Number(l.price) / n * rate * 100) / 100 : null;
 }
+// the reverse: a stock item's cost per unit (S$) → the link's price for one pack, in the link's currency
+async function linkPriceFromCost(l, cost, unit){
+  if (cost == null || cost === "") return null;
+  const n = packN(l, unit); if (!(n > 0)) return null;
+  let rate = 1;
+  if ((l.priceCur || "SGD") !== "SGD") { try { rate = await getRate(l.priceCur); } catch(e) { return null; } }
+  return Math.round(Number(cost) * n / rate * 100) / 100;
+}
+const PRICE_FIELDS = ["price","priceCur","pack"];
 const specsLine = l => { const t = String(l.specs || "").split(/\n+/).map(x => x.trim()).filter(Boolean).join(", "); return t.length > 160 ? t.slice(0, 157) + "…" : t; };
 // Connect a link to an existing stock item and fill each side's missing details from the other.
 async function connectLinkToItem(link, item){
